@@ -268,6 +268,10 @@ export interface Completion {
      * 信息
      */
     info: string;
+    /**
+     * 路径
+     */
+    path?: string;
 }
 
 //设计器组件的props.codeEditor配置

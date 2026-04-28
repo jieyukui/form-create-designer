@@ -1,197 +1,255 @@
+import {builtinCompletions, globalCompletions} from '../constants/index';
 import {scopeCompletionSource} from '@codemirror/lang-javascript';
-import {defaultJavaScriptCompletions} from '../constants';
 
 /**
- * 获取函数的参数签名
+ * 解析函数的参数签名
  * @param {Function} fn - 函数对象
- * @returns {string} 参数签名字符串，如 "(a, b)"
+ * @returns {string} 参数签名字符串
+ */
+function parseFunctionSignature(fn) {
+    if (typeof fn !== 'function') return '(...) => unknown';
+
+    const fnStr = fn.toString();
+
+    // 处理普通函数: function name(a, b) { ... }
+    let match = fnStr.match(/function\s*\(([^)]*)\)/);
+    if (match) {
+        const params = match[1].trim();
+        return `(${params}) => any`;
+    }
+
+    // 处理箭头函数: (a, b) => ...
+    match = fnStr.match(/^\(?([^)=]*)\)?\s*=>/);
+    if (match) {
+        let params = match[1].trim();
+        if (params && !params.includes('(') && params !== '') {
+            params = `(${params})`;
+        }
+        return `${params || '()'} => any`;
+    }
+
+    // 处理方法定义: method(a, b) { ... }
+    match = fnStr.match(/^[\w$]+\s*\(([^)]*)\)/);
+    if (match) {
+        const params = match[1].trim();
+        return `(${params}) => any`;
+    }
+
+    return '(...) => unknown';
+}
+
+/**
+ * 获取函数签名
+ * @param fn
+ * @returns {string|null}
  */
 function getFunctionSignature(fn) {
-    if (typeof fn !== 'function') return '';
+    if (typeof fn !== 'function') return null;
+    const params = parseFunctionSignature(fn);
+    const returns = inferReturnType(fn);
+    return params.replace('=> any', `=> ${returns}`);
+}
+
+/**
+ * 尝试推断函数的返回值类型
+ * @param {Function} fn - 函数对象
+ * @returns {string} 返回值类型
+ */
+function inferReturnType(fn) {
+    if (typeof fn !== 'function') return 'unknown';
+
     const fnStr = fn.toString();
-    const match = fnStr.match(/\([^)]*\)/);
-    if (match) return match[0];
+    const isAsync = fnStr.startsWith('async') || /async\s+function/.test(fnStr);
 
-    // 箭头函数处理
-    const arrowMatch = fnStr.match(/^[^(]*\(?([^)]*)\)?\s*=>/);
-    if (arrowMatch) {
-        const params = arrowMatch[1] || '';
-        return params ? `(${params.trim()})` : '()';
+    if (fnStr.includes('return Promise')) return isAsync ? 'Promise<any>' : 'Promise<any>';
+    if (fnStr.includes('return new Promise')) return 'Promise<T>';
+    if (fnStr.includes('return []')) return 'Array<T>';
+    if (fnStr.includes('return {}')) return 'object';
+    if (fnStr.includes('return ""') || fnStr.includes('return \'\'')) return 'string';
+    if (fnStr.match(/return\s+[0-9]+/)) return 'number';
+    if (fnStr.includes('return true') || fnStr.includes('return false')) return 'boolean';
+    if (fnStr.includes('return null')) return 'null';
+    if (fnStr.includes('return undefined')) return 'undefined';
+
+    // 尝试从函数体中找到 return 语句
+    const returnMatch = fnStr.match(/return\s+([^;\n]+)/);
+    if (returnMatch) {
+        const returnExpr = returnMatch[1].trim();
+        if (returnExpr === 'this') return 'this';
+        if (returnExpr.match(/^new\s+\w+/)) return returnExpr.split(' ')[1];
+        if (returnExpr.match(/^\[\]/)) return 'Array';
+        if (returnExpr.match(/^\{\}/)) return 'object';
     }
-    return '(...)';
+
+    return isAsync ? 'Promise<T>' : 'any';
 }
 
 /**
- * 获取值的类型描述
- * @param {any} value - 任意值
- * @returns {string} 类型描述
+ * 创建对象属性补全源（支持内置对象和自定义对象）
+ * @param options
  */
-function getValueType(value) {
-    if (value === null) return 'null';
-    if (value === undefined) return 'undefined';
-    if (typeof value === 'function') return 'function';
-    if (Array.isArray(value)) return 'array';
-    if (typeof value === 'object') return 'object';
-    return typeof value;
-}
-
-/**
- * 获取属性的详细信息
- * @param {string} propName - 属性名
- * @param {any} propValue - 属性值
- * @param {Object} customInfoMap - 自定义信息映射
- * @returns {Object} { info, detail }
- */
-function getPropertyInfo(propName, propValue, customInfoMap = {}) {
-    // 优先使用自定义信息
-    if (customInfoMap[propName]) {
-        return customInfoMap[propName];
-    }
-
-    const type = getValueType(propValue);
-    let info = '';
-    let detail = '';
-
-    switch (type) {
-    case 'function':
-        const signature = getFunctionSignature(propValue);
-        detail = signature;
-        info = `方法${signature}`;
-        break;
-    case 'object':
-        const propCount = propValue ? Object.keys(propValue).length : 0;
-        detail = `{${propCount}}`;
-        info = `对象，包含 ${propCount} 个属性`;
-        break;
-    case 'array':
-        const len = propValue ? propValue.length : 0;
-        detail = `[${len}]`;
-        info = `数组，长度 ${len}`;
-        break;
-    case 'string':
-        detail = `"${String(propValue).substring(0, 30)}${String(propValue).length > 30 ? '...' : ''}"`;
-        info = `字符串值: ${detail}`;
-        break;
-    case 'number':
-        detail = String(propValue);
-        info = `数字: ${detail}`;
-        break;
-    case 'boolean':
-        detail = String(propValue);
-        info = `布尔值: ${detail}`;
-        break;
-    default:
-        detail = type;
-        info = `类型: ${type}`;
-    }
-
-    return {info, detail};
-}
-
-/**
- * 为 scopeCompletionSource 的结果添加 info 字段
- * @param {Object} scope - 作用域对象，如 window
- * @param {Object} options - 配置选项
- * @param {Object} options.customInfoMap - 自定义信息映射 { propName: { info: '...', detail: '...' } }
- * @param {Array} options.includeProps - 要包含的属性名列表（白名单），不设置则包含所有可枚举属性
- * @param {Array} options.excludeProps - 要排除的属性名列表（黑名单）
- * @param {number} options.maxProps - 最大属性数量限制，默认 500
- * @returns {Function} 增强后的补全源函数
- */
-export function createEnhancedScopeCompletion(scope, options = {}) {
+export function createObjectPropertyCompletionSource(options = {}) {
     const {
-        customInfoMap = {},
-        includeProps = null,
-        excludeProps = ['then', 'catch', 'finally', 'constructor', '__proto__', 'toString', 'valueOf'],
-        maxProps = 500
+        customBuiltinCompletions = {},
+        customObjects = {},
+        customSignatures = {}
     } = options;
-
-    // 获取原始的 scopeCompletionSource
-    const originalSource = scopeCompletionSource(scope);
-
     return (context) => {
-        const result = originalSource(context);
-        if (!result) return null;
+        const cursor = context.pos;
 
-        // 过滤和增强补全项
-        let enhancedOptions = result.options;
+        // 获取光标前的文本，检测是否在对象属性访问中
+        const line = context.state.sliceDoc(Math.max(0, cursor - 200), cursor);
 
-        // 应用白/黑名单过滤
-        if (includeProps && Array.isArray(includeProps)) {
-            enhancedOptions = enhancedOptions.filter(opt => includeProps.includes(opt.label));
-        } else if (excludeProps && Array.isArray(excludeProps)) {
-            enhancedOptions = enhancedOptions.filter(opt => !excludeProps.includes(opt.label));
-        }
+        // 匹配 对象名.部分属性名
+        const match = line.match(/([\w$]+)\.([\w$]*)$/);
 
-        // 限制数量
-        if (enhancedOptions.length > maxProps) {
-            enhancedOptions = enhancedOptions.slice(0, maxProps);
-        }
+        if (!match) return null;
 
-        // 为每个选项添加增强信息
-        enhancedOptions = enhancedOptions.map(option => {
-            const propValue = scope[option.label];
-            const {info, detail} = getPropertyInfo(option.label, propValue, customInfoMap);
+        const [, objectName, partialProp] = match;
 
-            return {
-                ...option,
-                info: customInfoMap[option.label]?.info || info,
-                detail: customInfoMap[option.label]?.detail || detail || option.detail
-            };
-        });
+        // 1. 使用用户自定义内置对象的预定义补全
+        if (customBuiltinCompletions[objectName]) {
+            let completions = [...customBuiltinCompletions[objectName]];
 
-        return {
-            ...result,
-            options: enhancedOptions
-        };
-    };
-}
-
-/**
- * 创建自定义补全源（带 info 提示）
- * @param {Array} completions - 补全项数组
- * @param {Array} completions[].label - 显示的文本
- * @param {string} completions[].type - 类型: keyword, variable, function, class, constant, property
- * @param {string} completions[].info - 详细说明（HTML 支持）
- * @param {string} completions[].detail - 右侧详情
- * @param {Function} completions[].apply - 插入时的处理函数
- * @returns {Function} 补全源函数
- */
-export function createCustomCompletionSource(completions) {
-    return (context) => {
-        // 获取光标前的文本
-        let before = context.matchBefore(/\w*\.?\w*/);
-        if (!before || (before.from === before.to && !context.explicit)) return null;
-
-        // 支持点操作符路径匹配
-        const text = before.text;
-        const parts = text.split('.');
-        const currentPart = parts[parts.length - 1] || '';
-
-        // 处理对象属性补全
-        if (parts.length > 1) {
-            const objPath = parts.slice(0, -1).join('.');
-            // 可以根据 objPath 动态过滤出对象下的属性
-            const filtered = completions.filter(comp =>
-                comp.label.startsWith(objPath + '.') &&
-                comp.label.split('.')[parts.length - 1].startsWith(currentPart)
-            );
-
-            if (filtered.length > 0) {
-                return {
-                    from: before.from,
-                    options: filtered.map(comp => ({
+            // 应用自定义签名覆盖
+            completions = completions.map(comp => {
+                const key = `${objectName}.${comp.label}`;
+                if (customSignatures[key]) {
+                    return {
                         ...comp,
-                        label: comp.label.split('.').pop()
-                    })),
+                        detail: customSignatures[key].detail || comp.detail,
+                        info: customSignatures[key].info || comp.info
+                    };
+                }
+                return comp;
+            });
+
+            // 过滤
+            if (partialProp) {
+                completions = completions.filter(c =>
+                    c.label.toLowerCase().startsWith(partialProp.toLowerCase())
+                );
+            }
+
+            if (completions.length > 0) {
+                return {
+                    from: cursor - partialProp.length,
+                    options: completions,
                     validFor: /^\w*$/
                 };
             }
         }
 
-        // 普通补全
-        const matched = completions.filter(comp =>
-            comp.label.toLowerCase().startsWith(currentPart.toLowerCase())
+        // 2. 用户自定义对象
+        if (customObjects[objectName]) {
+            const obj = customObjects[objectName];
+            let completions = [];
+
+            // 扫描对象的属性
+            for (const key of Object.keys(obj)) {
+                const value = obj[key];
+                const keyName = `${objectName}.${key}`;
+
+                // 检查是否有自定义签名
+                if (customSignatures[keyName]) {
+                    completions.push({
+                        label: key,
+                        type: customSignatures[keyName].type || 'variable',
+                        detail: customSignatures[keyName].detail || '',
+                        info: customSignatures[keyName].info || ''
+                    });
+                } else if (typeof value === 'function') {
+                    const signature = getFunctionSignature(value);
+                    completions.push({
+                        label: key,
+                        type: 'function',
+                        detail: signature || 'function',
+                        info: `${objectName}.${key} 方法`
+                    });
+                } else {
+                    completions.push({
+                        label: key,
+                        type: typeof value === 'object' ? 'class' : 'variable',
+                        detail: typeof value,
+                        info: `${objectName}.${key} = ${JSON.stringify(value)}`
+                    });
+                }
+            }
+
+            if (partialProp) {
+                completions = completions.filter(c =>
+                    c.label.toLowerCase().startsWith(partialProp.toLowerCase())
+                );
+            }
+
+            if (completions.length > 0) {
+                return {
+                    from: cursor - partialProp.length,
+                    options: completions,
+                    validFor: /^\w*$/
+                };
+            }
+        }
+
+        // 3. 使用内置对象的预定义补全
+        if (builtinCompletions[objectName]) {
+            let completions = [...builtinCompletions[objectName]];
+
+            // 应用自定义签名覆盖
+            completions = completions.map(comp => {
+                const key = `${objectName}.${comp.label}`;
+                if (customSignatures[key]) {
+                    return {
+                        ...comp,
+                        detail: customSignatures[key].detail || comp.detail,
+                        info: customSignatures[key].info || comp.info
+                    };
+                }
+                return comp;
+            });
+
+            // 过滤
+            if (partialProp) {
+                completions = completions.filter(c =>
+                    c.label.toLowerCase().startsWith(partialProp.toLowerCase())
+                );
+            }
+
+            if (completions.length > 0) {
+                return {
+                    from: cursor - partialProp.length,
+                    options: completions,
+                    validFor: /^\w*$/
+                };
+            }
+        }
+
+        return null;
+    };
+}
+
+/**
+ * 创建全局变量补全源（支持函数签名）
+ * @param customCompletions
+ */
+export function createGlobalCompletionSource(customCompletions = []) {
+    // 合并内置全局和自定义全局
+    const allGlobals = [...globalCompletions];
+
+    // 添加自定义全局补全
+    for (const comp of customCompletions) {
+        if (!comp.path && !allGlobals.some(g => g.label === comp.label)) {
+            allGlobals.push(comp);
+        }
+    }
+
+    return (context) => {
+        const before = context.matchBefore(/\w*/);
+        if (!before || (before.from === before.to && !context.explicit)) return null;
+
+        const word = before.text;
+        const matched = allGlobals.filter(c =>
+            c.label.toLowerCase().startsWith(word.toLowerCase())
         );
 
         if (matched.length === 0) return null;
@@ -205,9 +263,8 @@ export function createCustomCompletionSource(completions) {
 }
 
 /**
- * 合并多个补全源
- * @param {Array} sources - 补全源函数数组
- * @returns {Function} 合并后的补全源
+ * 合并补全源（按优先级）
+ * @param sources
  */
 export function mergeCompletionSources(sources) {
     return async (context) => {
@@ -226,87 +283,48 @@ export function mergeCompletionSources(sources) {
 }
 
 /**
- * 创建完整的 JavaScript 补全配置
- * @param {Object} config - 配置对象
- * @param {Object} config.scope - 作用域对象，如 window
- * @param {Array} config.customCompletions - 自定义补全项
- * @param {Object} config.customInfoMap - 自定义信息映射
- * @param {Array} config.includeProps - 要包含的属性白名单
- * @param {Array} config.excludeProps - 要排除的属性黑名单
- * @returns {Object} { override, sources }
+ * 创建完整的 JavaScript 补全配置（支持函数签名和返回值）
+ * @param options
  */
-export function createJavaScriptCompletionConfig(config = {}) {
+export function setupJavaScriptCompletions(options = {}) {
     const {
-        scope = null,
         customCompletions = [],
-        customInfoMap = {},
-        includeProps = null,
-        excludeProps = ['then', 'catch', 'finally', 'constructor', '__proto__']
-    } = config;
-
+        includeWindow = true,
+    } = options;
+    const windowScope = typeof window !== 'undefined' ? window : null
     const sources = [];
 
-    // 添加自定义补全源
-    if (customCompletions.length > 0) {
-        sources.push(createCustomCompletionSource(customCompletions));
+    // // 优先级1: 全局变量补全
+    // sources.push(createGlobalCompletionSource(customCompletions));
+    //
+    // // 优先级2: 对象属性补全
+    // sources.push(createObjectPropertyCompletionSource(options));
+
+    // 优先级3: window 全局变量补全（兜底）
+    if (includeWindow && windowScope) {
+        // 关键！自动补全所有浏览器全局 API
+        sources.push(scopeCompletionSource(windowScope));
     }
 
-    // 添加作用域补全源
-    if (scope) {
-        sources.push(createEnhancedScopeCompletion(scope, {
-            customInfoMap,
-            includeProps,
-            excludeProps
-        }));
-    }
-
-    // 返回配置
-    return {
-        override: sources,
-        sources: sources,
-        // 便捷的 autocompletion 配置
-        autocompletionOptions: {
-            activateOnTyping: true,
-            defaultKeymap: true,
-            override: sources.length > 0 ? sources : undefined
-        }
-    };
+    // 返回合并后的补全源（按优先级顺序，第一个匹配到的返回）
+    return mergeCompletionSources(sources);
 }
 
-// ==================== 使用示例 ====================
-
 /**
- * 快速创建完整的 JavaScript 补全配置（推荐使用）
- * @param {Object} options - 配置选项
- * @param {Object} options.scope - 作用域对象，如 window
- * @param {Array} options.extraCompletions - 额外的自定义补全项
- * @param {Object} options.customInfoMap - 自定义信息映射
- * @returns {Object} autocompletion 的配置对象
+ * 简化的配置：直接返回 autocompletion 的配置对象
+ * @param {Object} options - 选项对象
+ * @param {Array} options.customCompletions - 用户自定义补全项 [{ label, type, detail, info, path? }]
+ * @param {Object} options.customBuiltinCompletions 自定义对象属性补全（输入 对象名. 时弹出的补全）
+ * @param {Object} options.customObjects - 用户自定义的对象 { objName: realObject }
+ * @param {Object} options.customSignatures - 用户自定义的函数签名 { 'obj.method': { detail, info } }
+ * @param {boolean} options.includeWindow - 是否包含 window 对象，默认 true
  */
-export function setupJavaScriptAutocompletion(options = {}) {
-    const {
-        scope = typeof window !== 'undefined' ? window : null,
-        extraCompletions = [],
-        customInfoMap = {}
-    } = options;
-
-    // 合并所有自定义补全项
-    const allCustomCompletions = [
-        ...defaultJavaScriptCompletions,
-        ...extraCompletions
-    ];
-
-    // 创建补全配置
-    const config = createJavaScriptCompletionConfig({
-        scope,
-        customCompletions: allCustomCompletions,
-        customInfoMap,
-        excludeProps: ['then', 'catch', 'finally', 'constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf']
-    });
+export function getAutocompletionConfig(options = {}) {
+    const source = setupJavaScriptCompletions(options);
 
     return {
         activateOnTyping: true,
         defaultKeymap: true,
-        override: config.override
+        override: [source]
     };
 }

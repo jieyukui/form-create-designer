@@ -43,14 +43,14 @@ import 'codemirror/addon/hint/show-hint.css';
 // CM6 核心导入 - 不使用 basicSetup，手动组合
 import {EditorView, keymap, lineNumbers, highlightActiveLineGutter} from '@codemirror/view';
 import {EditorState} from '@codemirror/state';
-import {javascript, scopeCompletionSource} from '@codemirror/lang-javascript';
-import {autocompletion, completeFromList} from '@codemirror/autocomplete';
+import {javascript} from '@codemirror/lang-javascript';
+import {autocompletion} from '@codemirror/autocomplete';
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {defaultHighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching} from '@codemirror/language';
 import {defineComponent, markRaw} from 'vue';
 import {addAutoKeyMap, toJSON} from '../utils/index';
 import errorMessage from '../utils/message';
-import {setupJavaScriptAutocompletion, getAutocompletionConfig} from '../helper/index'
+import {getAutocompletionConfig} from '../helper/index'
 
 const PREFIX = '[[FORM-CREATE-PREFIX-';
 const SUFFIX = '-FORM-CREATE-SUFFIX]]';
@@ -183,158 +183,6 @@ export default defineComponent({
             this.value = value;
             return value;
         },
-        load1() {
-            this.$nextTick(() => {
-                let value = this.tidyValue();
-
-                // 手动组合扩展，避免 basicSetup 的问题
-                const extensions = [
-                    lineNumbers(),                          // 显示行号
-                    highlightActiveLineGutter(),            // 高亮当前行的行号区域
-                    history(),                              // 撤销/重做历史记录
-                    EditorView.lineWrapping,                // 自动换行
-                    keymap.of([
-                        ...defaultKeymap,    // 基础快捷键
-                        ...historyKeymap     // 历史记录快捷键 (Ctrl+Z, Ctrl+Y 等)
-                    ]),
-                    indentOnInput(),                        // 输入时自动缩进
-                    syntaxHighlighting(defaultHighlightStyle, {fallback: true}), // 语法高亮样式
-                    bracketMatching(),                      // 括号匹配高亮
-                    javascript({
-                        jsx: false,
-                        typescript: false
-                    }),
-                    autocompletion({
-                        activateOnTyping: true,              // 输入时自动触发补全
-                        defaultKeymap: true
-                    })
-                ];
-
-                // 创建 CM6 编辑器实例
-                this.editor = markRaw(new EditorView({
-                    doc: value,
-                    parent: this.$refs.editor,
-                    extensions: extensions
-                }));
-
-                // 手动添加 change 监听
-                const updateListener = EditorView.updateListener.of((update) => {
-                    if (update.docChanged) {
-                        this.visible = true;
-                    }
-                });
-
-                // 重新配置扩展，包含监听器
-                this.editor.dispatch({
-                    effects: EditorState.reconfigure.of([...extensions, updateListener])
-                });
-
-                // 兼容原有的 addAutoKeyMap 方法
-                if (addAutoKeyMap && this.editor) {
-                    const compatEditor = {
-                        getValue: () => this.getEditorValue(),
-                        setValue: (val) => this.setEditorValue(val),
-                        on: () => {
-                        },
-                        off: () => {
-                        },
-                        _raw: this.editor
-                    };
-                    addAutoKeyMap(compatEditor);
-                }
-            });
-        },
-        load2() {
-            this.$nextTick(() => {
-                let value = this.tidyValue();
-
-                // 最简化的扩展配置
-                const extensions = [
-                    lineNumbers(),
-                    EditorView.lineWrapping,
-                    keymap.of(defaultKeymap),
-                    javascript(),
-                    autocompletion({activateOnTyping: true}),
-                    EditorView.updateListener.of((update) => {
-                        if (update.docChanged) {
-                            this.visible = true;
-                        }
-                    })
-                ];
-
-                // 创建编辑器
-                this.editor = markRaw(new EditorView({
-                    doc: value,
-                    parent: this.$refs.editor,
-                    extensions: extensions
-                }));
-            });
-        },
-        load3() {
-            this.$nextTick(() => {
-                let value = this.tidyValue();
-
-                // 手动组合扩展，避免 basicSetup 的问题
-                const extensions = [
-                    lineNumbers(),                          // 显示行号
-                    highlightActiveLineGutter(),            // 高亮当前行的行号区域
-                    history(),                              // 撤销/重做历史记录
-                    EditorView.lineWrapping,                // 自动换行
-                    keymap.of([
-                        ...defaultKeymap,    // 基础快捷键
-                        ...historyKeymap,    // 历史记录快捷键 (Ctrl+Z, Ctrl+Y 等)
-                        {
-                            key: 'Ctrl-Space',
-                            run: (view) => {
-                                const completion = view.state.field(autocompletion());
-                                completion.open();
-                                return true;
-                            },
-                            preventDefault: true
-                        }
-                    ]),
-                    indentOnInput(),                        // 输入时自动缩进
-                    syntaxHighlighting(defaultHighlightStyle, {fallback: true}), // 语法高亮样式
-                    bracketMatching(),                      // 括号匹配高亮
-                    javascript({
-                        jsx: false,
-                        typescript: false
-                    }),
-                    autocompletion({
-                        activateOnTyping: true,              // 输入时自动触发补全
-                        defaultKeymap: true
-                    }),
-                    // 直接在这里添加 updateListener，不需要重新配置
-                    EditorView.updateListener.of((update) => {
-                        if (update.docChanged) {
-                            this.visible = true;
-                        }
-                    })
-                ];
-
-                // 创建 CM6 编辑器实例
-                this.editor = markRaw(new EditorView({
-                    doc: value,
-                    parent: this.$refs.editor,
-                    extensions: extensions
-                }));
-
-                // 兼容原有的 addAutoKeyMap 方法
-                if (addAutoKeyMap && this.editor) {
-                    const compatEditor = {
-                        getValue: () => this.getEditorValue(),
-                        setValue: (val) => this.setEditorValue(val),
-                        on: () => {
-                        },
-                        off: () => {
-                        },
-                        _raw: this.editor
-                    };
-                    addAutoKeyMap(compatEditor);
-                }
-            });
-        },
-        // 在 load 方法中
         load() {
             this.$nextTick(() => {
                 let value = this.tidyValue();
@@ -373,14 +221,6 @@ export default defineComponent({
                         typescript: false
                     }),
                     autocompletion(getAutocompletionConfig(this.codeEditorConfig)),
-                    // autocompletion({
-                    //     activateOnTyping: true,
-                    //     defaultKeymap: true,
-                    //     // 关键：覆盖默认补全源，添加完整的全局补全
-                    //     override: [
-                    //         scopeCompletionSource(window), // 关键！自动补全所有浏览器全局 API
-                    //     ]
-                    // }),
                     EditorView.updateListener.of((update) => {
                         if (update.docChanged) {
                             this.visible = true;
@@ -395,7 +235,6 @@ export default defineComponent({
                 }));
             });
         }
-
     }
 });
 </script>

@@ -274,7 +274,7 @@ export interface Completion {
     path?: string;
 }
 
-//设计器组件的props.codeEditor配置
+//设计器组件的props.codeEditor配置 TODO，暂时不生效，可以现在配置，等待接入代码智能补全
 export interface CodeEditorConfig {
     // 自定义全局补全（输入时直接弹出的顶层补全）
     customCompletions?: Completion[],

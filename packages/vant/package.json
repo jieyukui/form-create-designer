@@ -20,7 +20,8 @@
         "url": "git+https://github.com/jieyukui/form-create-designer.git"
     },
     "publishConfig": {
-        "access": "public"
+        "access": "public",
+        "registry": "https://registry.npmjs.org/"
     },
     "keywords": [
         "AI",

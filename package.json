@@ -1,5 +1,5 @@
 {
-    "name": "form-create-designer",
+    "name": "@jieyukui/form-create-designer",
     "private": true,
     "description": "FormCreate低代码可视化表单设计器",
     "scripts": {
@@ -12,12 +12,12 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/xaboy/form-create-designer.git"
+        "url": "git+https://github.com/jieyukui/form-create-designer.git"
     },
-    "author": "xaboy",
+    "author": "jieyukui",
     "license": "MIT",
     "bugs": {
-        "url": "https://github.com/xaboy/form-create-designer/issues"
+        "url": "https://github.com/jieyukui/form-create-designer/issues"
     },
     "homepage": "https://form-create.com",
     "devDependencies": {
@@ -49,6 +49,7 @@
         "humps": "^2.0.1",
         "husky": "^4.2.5",
         "jsonlint-mod": "^1.7.6",
+        "lerna": "^9.0.7",
         "lint-staged": "^10.2.11",
         "npm-run-all": "^4.1.5",
         "ora": "^5.0.0",

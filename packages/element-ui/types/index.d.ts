@@ -239,6 +239,49 @@ export interface Config {
     };
 }
 
+export interface BaseCompletion {
+    /**
+     * 描述
+     */
+    detail: string;
+    /**
+     * 信息
+     */
+    info: string;
+}
+
+// 代码补全-完成
+export interface Completion {
+    /**
+     * 标签
+     */
+    label: string;
+    /**
+     * 类型
+     */
+    type: 'function' | 'property' | 'constant' | 'class';
+    /**
+     * 描述
+     */
+    detail: string;
+    /**
+     * 信息
+     */
+    info: string;
+}
+
+//设计器组件的props.codeEditor配置
+export interface CodeEditorConfig {
+    // 自定义全局补全（输入时直接弹出的顶层补全）
+    customCompletions?: Completion[],
+    // 自定义对象属性补全（输入 对象名. 时弹出的补全）
+    customBuiltinCompletions?: Record<string, Completion[]>;
+    // 自定义对象（动态扫描属性）
+    customObjects?: Record<string, any>;
+    // 自定义签名覆盖
+    customSignatures?: Record<string, BaseCompletion>;
+}
+
 //拖拽组件描述规则
 export interface DragRule {
     //组件id,不能重复
@@ -493,6 +536,8 @@ export declare const FcDesigner: import("vue").DefineComponent<{
     mask?: boolean;
     //多语⾔配置，默认为中⽂
     locale?: Object;
+    //代码编辑器配置
+    codeEditorConfig: CodeEditorConfig;
 }, {}, {}, {}, {
     //添加模板和拖拽组件的描述⽂件，并按照 menu 字段⾃动添加到对应的菜单下
     addComponent: (dragRule: DragRule | Array<DragRule>) => void;

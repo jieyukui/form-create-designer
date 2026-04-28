@@ -40,13 +40,17 @@
 <script>
 import 'codemirror/lib/codemirror.css';
 import 'codemirror/addon/hint/show-hint.css';
-import CodeMirror from 'codemirror/lib/codemirror';
-import 'codemirror/mode/javascript/javascript';
-import 'codemirror/addon/hint/show-hint';
-import 'codemirror/addon/hint/javascript-hint';
+// CM6 核心导入 - 不使用 basicSetup，手动组合
+import {EditorView, keymap, lineNumbers, highlightActiveLineGutter} from '@codemirror/view';
+import {EditorState} from '@codemirror/state';
+import {javascript, scopeCompletionSource} from '@codemirror/lang-javascript';
+import {autocompletion, completeFromList} from '@codemirror/autocomplete';
+import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
+import {defaultHighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching} from '@codemirror/language';
 import {defineComponent, markRaw} from 'vue';
-import {addAutoKeyMap, toJSON} from '../utils';
+import {addAutoKeyMap, toJSON} from '../utils/index';
 import errorMessage from '../utils/message';
+import {setupJavaScriptAutocompletion, getAutocompletionConfig} from '../helper/index'
 
 const PREFIX = '[[FORM-CREATE-PREFIX-';
 const SUFFIX = '-FORM-CREATE-SUFFIX]]';
@@ -61,6 +65,19 @@ export default defineComponent({
         body: Boolean,
         button: Boolean,
         fnx: Boolean,
+        // ... 原有 props
+        customCompletions: {  // 自定义补全项
+            type: Array,
+            default: () => []
+        },
+        customObjects: {     // 自定义对象
+            type: Object,
+            default: () => ({})
+        },
+        customSignatures: {  // 自定义函数签名
+            type: Object,
+            default: () => ({})
+        }
     },
     inject: ['designer'],
     data() {
@@ -74,7 +91,7 @@ export default defineComponent({
     watch: {
         modelValue(n) {
             if (n != this.value && (!n || !n.__json || (n.__json && n.__json != this.value))) {
-                this.editor && this.editor.setValue(this.tidyValue());
+                this.editor && this.setEditorValue(this.tidyValue());
             }
         },
     },
@@ -91,7 +108,7 @@ export default defineComponent({
             }).join(', ');
         },
         argList() {
-            return this.args.map(arg => {
+            return (this.args || []).map(arg => {
                 if (typeof arg === 'string') {
                     return {
                         name: arg,
@@ -107,9 +124,25 @@ export default defineComponent({
             this.load();
         });
     },
+    beforeUnmount() {
+        if (this.editor) {
+            this.editor.destroy();
+        }
+    },
     methods: {
+        setEditorValue(value) {
+            if (!this.editor) return;
+            const currentValue = this.editor.state.doc.toString();
+            if (currentValue === value) return;
+            this.editor.dispatch({
+                changes: {from: 0, to: this.editor.state.doc.length, insert: value || ''}
+            });
+        },
+        getEditorValue() {
+            return this.editor ? this.editor.state.doc.toString() : '';
+        },
         save() {
-            const str = this.editor.getValue() || '';
+            const str = this.getEditorValue() || '';
             if (str.trim() === '') {
                 this.fn = '';
             } else {
@@ -146,7 +179,7 @@ export default defineComponent({
         },
         tidyValue() {
             let value = this.modelValue || '';
-            if (value.__json) {
+            if (value && value.__json) {
                 value = value.__json;
             }
             if (this.fnx && typeof value === 'string' && value.indexOf('$FNX:') === 0) {
@@ -154,41 +187,316 @@ export default defineComponent({
             }
             if (typeof value === 'function') {
                 value = this.trimString(toJSON(value)).trim();
-            } else if (!this.body) {
+            } else if (!this.body && typeof value === 'string') {
                 value = this.trimString(value).trim();
             }
             this.value = value;
             return value;
         },
+        load1() {
+            this.$nextTick(() => {
+                let value = this.tidyValue();
+
+                // 手动组合扩展，避免 basicSetup 的问题
+                const extensions = [
+                    lineNumbers(),                          // 显示行号
+                    highlightActiveLineGutter(),            // 高亮当前行的行号区域
+                    history(),                              // 撤销/重做历史记录
+                    EditorView.lineWrapping,                // 自动换行
+                    keymap.of([
+                        ...defaultKeymap,    // 基础快捷键
+                        ...historyKeymap     // 历史记录快捷键 (Ctrl+Z, Ctrl+Y 等)
+                    ]),
+                    indentOnInput(),                        // 输入时自动缩进
+                    syntaxHighlighting(defaultHighlightStyle, {fallback: true}), // 语法高亮样式
+                    bracketMatching(),                      // 括号匹配高亮
+                    javascript({
+                        jsx: false,
+                        typescript: false
+                    }),
+                    autocompletion({
+                        activateOnTyping: true,              // 输入时自动触发补全
+                        defaultKeymap: true
+                    })
+                ];
+
+                // 创建 CM6 编辑器实例
+                this.editor = markRaw(new EditorView({
+                    doc: value,
+                    parent: this.$refs.editor,
+                    extensions: extensions
+                }));
+
+                // 手动添加 change 监听
+                const updateListener = EditorView.updateListener.of((update) => {
+                    if (update.docChanged) {
+                        this.visible = true;
+                    }
+                });
+
+                // 重新配置扩展，包含监听器
+                this.editor.dispatch({
+                    effects: EditorState.reconfigure.of([...extensions, updateListener])
+                });
+
+                // 兼容原有的 addAutoKeyMap 方法
+                if (addAutoKeyMap && this.editor) {
+                    const compatEditor = {
+                        getValue: () => this.getEditorValue(),
+                        setValue: (val) => this.setEditorValue(val),
+                        on: () => {
+                        },
+                        off: () => {
+                        },
+                        _raw: this.editor
+                    };
+                    addAutoKeyMap(compatEditor);
+                }
+            });
+        },
+        load2() {
+            this.$nextTick(() => {
+                let value = this.tidyValue();
+
+                // 最简化的扩展配置
+                const extensions = [
+                    lineNumbers(),
+                    EditorView.lineWrapping,
+                    keymap.of(defaultKeymap),
+                    javascript(),
+                    autocompletion({activateOnTyping: true}),
+                    EditorView.updateListener.of((update) => {
+                        if (update.docChanged) {
+                            this.visible = true;
+                        }
+                    })
+                ];
+
+                // 创建编辑器
+                this.editor = markRaw(new EditorView({
+                    doc: value,
+                    parent: this.$refs.editor,
+                    extensions: extensions
+                }));
+            });
+        },
+        load3() {
+            this.$nextTick(() => {
+                let value = this.tidyValue();
+
+                // 手动组合扩展，避免 basicSetup 的问题
+                const extensions = [
+                    lineNumbers(),                          // 显示行号
+                    highlightActiveLineGutter(),            // 高亮当前行的行号区域
+                    history(),                              // 撤销/重做历史记录
+                    EditorView.lineWrapping,                // 自动换行
+                    keymap.of([
+                        ...defaultKeymap,    // 基础快捷键
+                        ...historyKeymap,    // 历史记录快捷键 (Ctrl+Z, Ctrl+Y 等)
+                        {
+                            key: 'Ctrl-Space',
+                            run: (view) => {
+                                const completion = view.state.field(autocompletion());
+                                completion.open();
+                                return true;
+                            },
+                            preventDefault: true
+                        }
+                    ]),
+                    indentOnInput(),                        // 输入时自动缩进
+                    syntaxHighlighting(defaultHighlightStyle, {fallback: true}), // 语法高亮样式
+                    bracketMatching(),                      // 括号匹配高亮
+                    javascript({
+                        jsx: false,
+                        typescript: false
+                    }),
+                    autocompletion({
+                        activateOnTyping: true,              // 输入时自动触发补全
+                        defaultKeymap: true
+                    }),
+                    // 直接在这里添加 updateListener，不需要重新配置
+                    EditorView.updateListener.of((update) => {
+                        if (update.docChanged) {
+                            this.visible = true;
+                        }
+                    })
+                ];
+
+                // 创建 CM6 编辑器实例
+                this.editor = markRaw(new EditorView({
+                    doc: value,
+                    parent: this.$refs.editor,
+                    extensions: extensions
+                }));
+
+                // 兼容原有的 addAutoKeyMap 方法
+                if (addAutoKeyMap && this.editor) {
+                    const compatEditor = {
+                        getValue: () => this.getEditorValue(),
+                        setValue: (val) => this.setEditorValue(val),
+                        on: () => {
+                        },
+                        off: () => {
+                        },
+                        _raw: this.editor
+                    };
+                    addAutoKeyMap(compatEditor);
+                }
+            });
+        },
+        // 在 load 方法中
         load() {
             this.$nextTick(() => {
                 let value = this.tidyValue();
-                this.editor = markRaw(CodeMirror(this.$refs.editor, {
-                    lineNumbers: true,
-                    mode: {name: 'javascript', globalVars: true},
-                    extraKeys: {'Ctrl-Space': 'autocomplete'},
-                    line: true,
-                    tabSize: 2,
-                    lineWrapping: true,
-                    value,
-                }));
-                this.editor.on('inputRead', (cm, event) => {
-                    if (event.keyCode === 32 && event.ctrlKey) { // 检测 Ctrl + Space 快捷键
-                        CodeMirror.showHint(cm, CodeMirror.hint.javascript); // 触发代码提示
+                // 配置 JavaScript 补全
+                // const completionConfig = setupJavaScriptAutocompletion({
+                //     scope: window,                    // 自动扫描 window 对象
+                //     // extraCompletions: vueCompletions, // 添加 Vue 相关的补全
+                //     customInfoMap: {
+                //         // 可以覆盖特定属性的信息
+                //         'localStorage': {
+                //             info: '本地存储对象，可以存储字符串键值对',
+                //             detail: 'Storage'
+                //         }
+                //     }
+                // });
+                // 配置补全
+                // const completionConfig = getAutocompletionConfig({
+                //     // 1. 用户自定义补全项（最高优先级）
+                //     customCompletions: [
+                //         {
+                //             label: 'myGlobalFunc',
+                //             type: 'function',
+                //             detail: '(x: number, y: string) => boolean',
+                //             info: '我的自定义全局函数，用于处理xxx逻辑'
+                //         },
+                //         {
+                //             label: 'myVar',
+                //             type: 'variable',
+                //             detail: 'string',
+                //             info: '我的自定义变量'
+                //         },
+                //         // 支持对象属性补全
+                //         {
+                //             label: 'myMethod',
+                //             type: 'function',
+                //             detail: '() => void',
+                //             info: 'myObject 的方法',
+                //             path: 'myObject'  // 表示是 myObject.method
+                //         }
+                //     ],
+                //
+                //     // 2. 用户自定义的对象（用于扫描属性）
+                //     customObjects: {
+                //         'myObject': {  // 当输入 myObject. 时，会扫描这个对象
+                //             myMethod: () => console.log('hello'),
+                //             myProperty: 'some value'
+                //         },
+                //         'apiService': {
+                //             getUser: (id) => Promise.resolve({ id, name: 'John' }),
+                //             saveUser: (user) => Promise.resolve(true)
+                //         }
+                //     },
+                //
+                //     // 3. 用户自定义的函数签名（覆盖或补充）
+                //     customSignatures: {
+                //         'Math.abs': {
+                //             detail: '(x: number) => number',
+                //             info: '返回绝对值，如果 x 为负数则返回 -x，否则返回 x'
+                //         },
+                //         'apiService.getUser': {
+                //             detail: '(id: number) => Promise<{ id: number, name: string }>',
+                //             info: '根据用户 ID 获取用户信息'
+                //         }
+                //     },
+                //
+                //     // 4. 是否包含 window 对象（默认 true）
+                //     includeWindow: true
+                // });
+                const completionConfig = getAutocompletionConfig({
+                    // 可选：自定义全局补全
+                    customCompletions: [
+                        {label: 'ref', type: 'function', detail: '<T>(value: T) => Ref<T>', info: 'Vue 3 响应式引用'},
+                        {label: 'reactive', type: 'function', detail: '<T>(target: T) => T', info: 'Vue 3 响应式对象'}
+                    ],
+                    // 可选：自定义对象
+                    customObjects: {
+                        myApi: {
+                            getUser: (id) => ({id, name: 'John'}),
+                            saveUser: (user) => true
+                        }
+                    },
+                    // 可选：自定义签名覆盖
+                    customSignatures: {
+                        'Math.abs': {
+                            detail: '(x: number) => number',
+                            info: '返回绝对值，如果 x 为负数则返回 -x，否则返回 x test'
+                        }
                     }
                 });
-                this.editor.on('change', () => {
-                    this.visible = true;
-                });
-                addAutoKeyMap(this.editor);
+                const extensions = [
+                    lineNumbers(),
+                    EditorView.lineWrapping,
+                    history(),
+                    keymap.of([
+                        ...defaultKeymap,
+                        ...historyKeymap,
+                        {
+                            key: 'Ctrl-Space',
+                            run: (view) => {
+                                const completion = view.state.field(autocompletion());
+                                completion.open();
+                                return true;
+                            },
+                            preventDefault: true
+                        },
+                        {
+                            key: 'Ctrl-Enter',
+                            run: (view) => {
+                                const completion = view.state.field(autocompletion());
+                                completion.open();
+                                return true;
+                            },
+                            preventDefault: true
+                        }
+                    ]),
+                    indentOnInput(),
+                    syntaxHighlighting(defaultHighlightStyle, {fallback: true}),
+                    bracketMatching(),
+                    javascript({
+                        jsx: false,
+                        typescript: false
+                    }),
+                    autocompletion(completionConfig),
+                    // autocompletion({
+                    //     activateOnTyping: true,
+                    //     defaultKeymap: true,
+                    //     // 关键：覆盖默认补全源，添加完整的全局补全
+                    //     override: [
+                    //         scopeCompletionSource(window), // 关键！自动补全所有浏览器全局 API
+                    //     ]
+                    // }),
+                    EditorView.updateListener.of((update) => {
+                        if (update.docChanged) {
+                            this.visible = true;
+                        }
+                    })
+                ];
+
+                this.editor = markRaw(new EditorView({
+                    doc: value,
+                    parent: this.$refs.editor,
+                    extensions: extensions
+                }));
             });
-        },
+        }
+
     }
 });
 </script>
 
 <style>
-
+/* 保留原有样式，添加 CM6 样式覆盖 */
 ._fd-fn {
     display: flex;
     flex-direction: column;
@@ -202,6 +510,7 @@ export default defineComponent({
     bottom: 3px;
     right: 5px;
     box-shadow: 0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 9px 28px 8px rgba(0, 0, 0, 0.05);
+    z-index: 10;
 }
 
 ._fd-fn-editor {
@@ -209,11 +518,25 @@ export default defineComponent({
     flex: 1;
     width: 100%;
     overflow: auto;
+    min-height: 200px;
+    //border: 1px solid #dcdfe6;
+    //border-radius: 4px;
 }
 
-._fd-fn-editor .CodeMirror {
+/* CM6 样式覆盖 */
+._fd-fn-editor .cm-editor {
     height: 100%;
     width: 100%;
+}
+
+._fd-fn-editor .cm-editor.cm-focused {
+    outline: none;
+}
+
+._fd-fn-editor .cm-scroller {
+    overflow: auto;
+    font-family: 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
 }
 
 ._fd-fn-tip {
@@ -243,6 +566,9 @@ export default defineComponent({
     margin-right: 4px;
     border-right: 1px solid #ddd;
     float: left;
+}
+._fd-fn-editor .cm-editor .cm-lineNumbers .cm-gutterElement {
+    min-width: 29px;
 }
 
 ._fd-fn-arg {

@@ -511,7 +511,11 @@ export default defineComponent({
             default: undefined,
         },
         locale: Object,
-        handle: Array
+        handle: Array,
+        editor: {
+            type: Object,
+            default: () => ({}),
+        }
     },
     emits: ['active', 'create', 'copy', 'delete', 'drag', 'inputData', 'save', 'clear', 'copyRule', 'pasteRule', 'sortUp', 'sortDown', 'changeDevice', 'previewSubmit', 'previewReset', 'changeField'],
     setup(props) {

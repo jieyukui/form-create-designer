@@ -512,7 +512,7 @@ export default defineComponent({
         },
         locale: Object,
         handle: Array,
-        editor: {
+        codeEditorConfig: {
             type: Object,
             default: () => ({}),
         }

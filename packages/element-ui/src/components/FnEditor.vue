@@ -64,20 +64,7 @@ export default defineComponent({
         args: Array,
         body: Boolean,
         button: Boolean,
-        fnx: Boolean,
-        // ... 原有 props
-        customCompletions: {  // 自定义补全项
-            type: Array,
-            default: () => []
-        },
-        customObjects: {     // 自定义对象
-            type: Object,
-            default: () => ({})
-        },
-        customSignatures: {  // 自定义函数签名
-            type: Object,
-            default: () => ({})
-        }
+        fnx: Boolean
     },
     inject: ['designer'],
     data() {
@@ -96,6 +83,9 @@ export default defineComponent({
         },
     },
     computed: {
+        codeEditorConfig() {
+            return this.designer.props.codeEditorConfig;
+        },
         t() {
             return this.designer.setupState.t;
         },
@@ -348,92 +338,7 @@ export default defineComponent({
         load() {
             this.$nextTick(() => {
                 let value = this.tidyValue();
-                // 配置 JavaScript 补全
-                // const completionConfig = setupJavaScriptAutocompletion({
-                //     scope: window,                    // 自动扫描 window 对象
-                //     // extraCompletions: vueCompletions, // 添加 Vue 相关的补全
-                //     customInfoMap: {
-                //         // 可以覆盖特定属性的信息
-                //         'localStorage': {
-                //             info: '本地存储对象，可以存储字符串键值对',
-                //             detail: 'Storage'
-                //         }
-                //     }
-                // });
-                // 配置补全
-                // const completionConfig = getAutocompletionConfig({
-                //     // 1. 用户自定义补全项（最高优先级）
-                //     customCompletions: [
-                //         {
-                //             label: 'myGlobalFunc',
-                //             type: 'function',
-                //             detail: '(x: number, y: string) => boolean',
-                //             info: '我的自定义全局函数，用于处理xxx逻辑'
-                //         },
-                //         {
-                //             label: 'myVar',
-                //             type: 'variable',
-                //             detail: 'string',
-                //             info: '我的自定义变量'
-                //         },
-                //         // 支持对象属性补全
-                //         {
-                //             label: 'myMethod',
-                //             type: 'function',
-                //             detail: '() => void',
-                //             info: 'myObject 的方法',
-                //             path: 'myObject'  // 表示是 myObject.method
-                //         }
-                //     ],
-                //
-                //     // 2. 用户自定义的对象（用于扫描属性）
-                //     customObjects: {
-                //         'myObject': {  // 当输入 myObject. 时，会扫描这个对象
-                //             myMethod: () => console.log('hello'),
-                //             myProperty: 'some value'
-                //         },
-                //         'apiService': {
-                //             getUser: (id) => Promise.resolve({ id, name: 'John' }),
-                //             saveUser: (user) => Promise.resolve(true)
-                //         }
-                //     },
-                //
-                //     // 3. 用户自定义的函数签名（覆盖或补充）
-                //     customSignatures: {
-                //         'Math.abs': {
-                //             detail: '(x: number) => number',
-                //             info: '返回绝对值，如果 x 为负数则返回 -x，否则返回 x'
-                //         },
-                //         'apiService.getUser': {
-                //             detail: '(id: number) => Promise<{ id: number, name: string }>',
-                //             info: '根据用户 ID 获取用户信息'
-                //         }
-                //     },
-                //
-                //     // 4. 是否包含 window 对象（默认 true）
-                //     includeWindow: true
-                // });
-                const completionConfig = getAutocompletionConfig({
-                    // 可选：自定义全局补全
-                    customCompletions: [
-                        {label: 'ref', type: 'function', detail: '<T>(value: T) => Ref<T>', info: 'Vue 3 响应式引用'},
-                        {label: 'reactive', type: 'function', detail: '<T>(target: T) => T', info: 'Vue 3 响应式对象'}
-                    ],
-                    // 可选：自定义对象
-                    customObjects: {
-                        myApi: {
-                            getUser: (id) => ({id, name: 'John'}),
-                            saveUser: (user) => true
-                        }
-                    },
-                    // 可选：自定义签名覆盖
-                    customSignatures: {
-                        'Math.abs': {
-                            detail: '(x: number) => number',
-                            info: '返回绝对值，如果 x 为负数则返回 -x，否则返回 x test'
-                        }
-                    }
-                });
+
                 const extensions = [
                     lineNumbers(),
                     EditorView.lineWrapping,
@@ -467,7 +372,7 @@ export default defineComponent({
                         jsx: false,
                         typescript: false
                     }),
-                    autocompletion(completionConfig),
+                    autocompletion(getAutocompletionConfig(this.codeEditorConfig)),
                     // autocompletion({
                     //     activateOnTyping: true,
                     //     defaultKeymap: true,

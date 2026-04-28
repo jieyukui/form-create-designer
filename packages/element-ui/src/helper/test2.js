@@ -64,7 +64,7 @@ function getFunctionSignature(fn) {
 /**
  * 创建对象属性补全源（支持内置对象和自定义对象）
  */
-export function createObjectPropertyCompletionSource(customObjects = {}, customSignatures = {}) {
+export function createObjectPropertyCompletionSource(customBuiltinCompletions = {}, customObjects = {}, customSignatures = {}) {
     return (context) => {
         const cursor = context.pos;
 
@@ -111,7 +111,40 @@ export function createObjectPropertyCompletionSource(customObjects = {}, customS
             }
         }
 
-        // 2. 用户自定义对象
+        // 2. 使用用户自定义内置对象的预定义补全
+        if (customBuiltinCompletions[objectName]) {
+            let completions = [...customBuiltinCompletions[objectName]];
+
+            // 应用自定义签名覆盖
+            completions = completions.map(comp => {
+                const key = `${objectName}.${comp.label}`;
+                if (customSignatures[key]) {
+                    return {
+                        ...comp,
+                        detail: customSignatures[key].detail || comp.detail,
+                        info: customSignatures[key].info || comp.info
+                    };
+                }
+                return comp;
+            });
+
+            // 过滤
+            if (partialProp) {
+                completions = completions.filter(c =>
+                    c.label.toLowerCase().startsWith(partialProp.toLowerCase())
+                );
+            }
+
+            if (completions.length > 0) {
+                return {
+                    from: cursor - partialProp.length,
+                    options: completions,
+                    validFor: /^\w*$/
+                };
+            }
+        }
+
+        // 3. 用户自定义对象
         if (customObjects[objectName]) {
             const obj = customObjects[objectName];
             const completions = [];
@@ -227,6 +260,7 @@ export function mergeCompletionSources(sources) {
 export function setupJavaScriptCompletions(config = {}) {
     const {
         customCompletions = [],
+        customBuiltinCompletions = {},
         customObjects = {},
         customSignatures = {}
     } = config;
@@ -237,7 +271,7 @@ export function setupJavaScriptCompletions(config = {}) {
     sources.push(createGlobalCompletionSource(customCompletions));
 
     // 优先级2: 对象属性补全
-    sources.push(createObjectPropertyCompletionSource(customObjects, customSignatures));
+    sources.push(createObjectPropertyCompletionSource(customBuiltinCompletions, customObjects, customSignatures));
 
     return mergeCompletionSources(sources);
 }

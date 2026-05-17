@@ -236,6 +236,8 @@ export const windowGlobalProps = [
  *
  * trailingSpace: false 表示补全后不追加空格（后接 ; . : 等）
  * 未设置时由 keyword-apply.js 按关键字类型自动判断
+ * boost 代码补全排序
+ * 按 boost 降序，相同 boost 按字母升序
  */
 export const keywordCompletions = [
     // ==================== 声明 ====================

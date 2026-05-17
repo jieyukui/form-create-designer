@@ -259,7 +259,7 @@ export interface Completion {
     /**
      * 类型
      */
-    type: 'function' | 'property' | 'constant' | 'class';
+    type: 'function' | 'property' | 'constant' | 'class' | 'keyword';
     /**
      * 描述
      */
@@ -272,6 +272,10 @@ export interface Completion {
      * 路径
      */
     path?: string;
+    /**
+     * 代码补全排序
+     */
+    boost?: number;
 }
 
 //设计器组件的props.codeEditor配置 TODO，暂时不生效，可以现在配置，等待接入代码智能补全

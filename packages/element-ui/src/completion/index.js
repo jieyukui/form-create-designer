@@ -24,10 +24,7 @@ import {
  *   { objName: realObject }
  * @param {Object} options.customSignatures - 用户自定义签名
  *   { 'objName.methodName': { type, detail, info } }
- * @param {Object} options.customObjectCompletions - 自定义对象属性补全（声明式，写法同 Math 数据表）
- *   扁平: { myApp: Completion[], 'myApp.api': Completion[] }
- *   树形: { myApp: { request: Completion, api: { user: { get: Completion } } } }
- *   数组+children: { myApp: [{ label: 'api', children: { ... } }] }
+ * @param {Object} options.customObjectCompletions - 对象树 { meta, members }，避免与用户属性名冲突
  * @param {boolean} options.includeWindow - 是否包含 window 对象扫描（默认 true）
  * @param {boolean} options.includeChain - 是否包含链式调用推断（默认 true）
  * @param {boolean} options.includePrototypes - 是否包含原型链补全（默认 true）

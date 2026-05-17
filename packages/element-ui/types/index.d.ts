@@ -278,17 +278,23 @@ export interface Completion {
     boost?: number;
 }
 
+/** customObjectCompletions 命名空间节点 */
+export interface CustomObjectCompletionNode {
+    meta?: Partial<Completion> & { label?: string };
+    members?: Record<string, CustomObjectCompletionNode | Completion>;
+    children?: Record<string, CustomObjectCompletionNode | Completion>;
+}
+
 // 设计器 FnEditor 的 codeEditorConfig（通过 FcDesigner 的 codeEditorConfig 传入）
 export interface CodeEditorConfig {
     // 自定义全局补全（输入时直接弹出的顶层补全）
     customCompletions?: Completion[],
     /**
-     * 自定义对象属性补全（声明式，非运行时扫描），支持三种形态（可混用）：
-     * 1. 扁平：{ myApp: Completion[], 'myApp.api': Completion[] }
-     * 2. 树形：{ myApp: { request: Completion, api: { user: { get: Completion } } } }
-     * 3. 数组+children：{ myApp: [{ label: 'api', children: { get: Completion } }] }
+     * 自定义对象树。命名空间：{ meta: { type, detail, info }, members: { ... } }；
+     * 叶子可简写 { type, detail, info }，或与 meta 字段同名的属性用 { meta: { ... } }。
+     * 根对象 meta 会注册为全局补全。
      */
-    customObjectCompletions?: Record<string, Completion[] | Completion | Record<string, unknown>>;
+    customObjectCompletions?: Record<string, CustomObjectCompletionNode | Completion[]>;
     // 自定义对象（动态扫描属性）
     customObjects?: Record<string, any>;
     // 自定义签名覆盖

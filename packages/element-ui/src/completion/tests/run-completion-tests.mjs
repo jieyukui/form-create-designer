@@ -43,14 +43,24 @@ const testEnvironment = {
 
 const sampleCustomObjectTree = {
     myApp: {
-        version: {label: 'version', type: 'property', detail: 'string', info: '版本'},
-        request: {label: 'request', type: 'function', detail: '()', info: '请求'},
-        api: {
-            user: {
-                get: {label: 'get', type: 'function', detail: '(id)', info: '获取用户'},
-                list: {label: 'list', type: 'function', detail: '()', info: '列表'}
-            },
-            post: {label: 'post', type: 'function', detail: '(data)', info: '提交'}
+        meta: {type: 'class', detail: 'Application', info: '自定义应用对象'},
+        members: {
+            version: {type: 'property', detail: 'string', info: '版本'},
+            request: {type: 'function', detail: '()', info: '请求'},
+            api: {
+                meta: {type: 'class', detail: 'API', info: 'API 模块'},
+                members: {
+                    user: {
+                        meta: {type: 'class', detail: 'UserAPI', info: '用户模块'},
+                        members: {
+                            type: {meta: {type: 'property', detail: 'string', info: '用户类型字段'}},
+                            get: {type: 'function', detail: '(id)', info: '获取用户'},
+                            list: {type: 'function', detail: '()', info: '列表'}
+                        }
+                    },
+                    post: {type: 'function', detail: '(data)', info: '提交'}
+                }
+            }
         }
     }
 };
@@ -81,6 +91,10 @@ function hasLabels(result, expected) {
 function lacksLabels(result, forbidden) {
     const set = new Set(labels(result));
     return forbidden.every(l => !set.has(l));
+}
+
+function findOption(result, label) {
+    return result?.options?.find(o => o.label === label);
 }
 
 // ==================== 上下文分析用例 ====================
@@ -420,12 +434,28 @@ const completionCases = [
             {
                 name: 'myApp.api.user 三级',
                 code: 'myApp.api.user.',
-                require: ['get', 'list']
+                require: ['get', 'list', 'type']
+            },
+            {
+                name: 'user.type 属性名与 meta 不冲突',
+                code: 'myApp.api.user.',
+                checkOption: {label: 'type', detail: 'string', info: '用户类型字段'}
             },
             {
                 name: '全局补全 myApp',
                 code: 'myA',
-                require: ['myApp']
+                require: ['myApp'],
+                checkOption: {label: 'myApp', detail: 'Application', info: '自定义应用对象'}
+            },
+            {
+                name: 'myApp.api 带 detail/info',
+                code: 'myApp.',
+                checkOption: {label: 'api', detail: 'API', info: 'API 模块'}
+            },
+            {
+                name: 'myApp.api.user 带 detail/info',
+                code: 'myApp.api.',
+                checkOption: {label: 'user', detail: 'UserAPI', info: '用户模块'}
             },
         ]
     },
@@ -472,10 +502,14 @@ function runContextCase(testCase) {
 
 function runNormalizeObjectCompletionsTests() {
     const {topLevel, nestedPaths} = normalizeCustomObjectCompletions(sampleCustomObjectTree);
+    const apiItem = topLevel.myApp?.find(c => c.label === 'api');
+    const userItem = nestedPaths['myApp.api']?.find(c => c.label === 'user');
     const checks = [
         ['topLevel myApp', topLevel.myApp?.map(c => c.label).sort().join(','), 'api,request,version'],
         ['nested myApp.api', nestedPaths['myApp.api']?.map(c => c.label).sort().join(','), 'post,user'],
-        ['nested myApp.api.user', nestedPaths['myApp.api.user']?.map(c => c.label).sort().join(','), 'get,list'],
+        ['nested myApp.api.user', nestedPaths['myApp.api.user']?.map(c => c.label).sort().join(','), 'get,list,type'],
+        ['api detail', apiItem?.detail, 'API'],
+        ['user info', userItem?.info, '用户模块'],
     ];
     let ok = true;
     for (const [name, got, expect] of checks) {
@@ -528,6 +562,23 @@ async function runCompletionCase(testCase, groupOptions = {}) {
             if (applyText !== testCase.checkApply.expectInsert) {
                 ok = false;
                 details.push(`apply: "${applyText}" !== "${testCase.checkApply.expectInsert}"`);
+            }
+        }
+    }
+
+    if (testCase.checkOption) {
+        const item = findOption(result, testCase.checkOption.label);
+        if (!item) {
+            ok = false;
+            details.push(`未找到补全项 ${testCase.checkOption.label}`);
+        } else {
+            if (testCase.checkOption.detail != null && item.detail !== testCase.checkOption.detail) {
+                ok = false;
+                details.push(`detail: "${item.detail}" !== "${testCase.checkOption.detail}"`);
+            }
+            if (testCase.checkOption.info != null && item.info !== testCase.checkOption.info) {
+                ok = false;
+                details.push(`info: "${item.info}" !== "${testCase.checkOption.info}"`);
             }
         }
     }

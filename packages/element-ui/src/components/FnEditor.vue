@@ -190,7 +190,7 @@ export default defineComponent({
                     customCompletions: editorCfg.customCompletions,
                     customObjects: editorCfg.customObjects,
                     customSignatures: editorCfg.customSignatures,
-                    customObjectCompletions: editorCfg.customObjectCompletions
+                    customObjectCompletions: editorCfg.customObjectCompletions,
                 });
 
                 const extensions = [
@@ -317,6 +317,7 @@ export default defineComponent({
     border-right: 1px solid #ddd;
     float: left;
 }
+
 ._fd-fn-editor .cm-editor .cm-lineNumbers .cm-gutterElement {
     min-width: 29px;
 }

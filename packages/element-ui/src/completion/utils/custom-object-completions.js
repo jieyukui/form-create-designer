@@ -1,44 +1,37 @@
 import {Priority} from '../core/priority';
 import {mergeCompletionItems, normalizeCompletionItem} from './normalize';
 
+const META_KEYS = new Set(['label', 'type', 'detail', 'info', 'boost', 'apply', 'priority']);
+const STRUCTURE_KEYS = new Set(['meta', 'members', 'children']);
+
 /**
  * 将 customObjectCompletions 规范化为补全系统可用的结构。
  *
- * 支持三种写法（可混用）：
+ * 节点结构（避免 type/detail/info 与用户属性名冲突）：
+ * - 命名空间：{ meta: { type, detail, info, ... }, members: { ... } }
+ * - 叶子属性：{ type, detail, info } 简写，或 { meta: { ... } }（属性名与 meta 字段冲突时）
  *
- * 1. 扁平 Record（键为点号路径，写法同 Math 数据表）
- *    { myApp: [...], 'myApp.api': [...] }
- *
- * 2. 树形对象（属性名即路径段）
- *    { myApp: { request: { label, type, ... }, api: { user: { get: {...} } } } }
- *
- * 3. 数组 + children（补全项上挂子命名空间）
- *    { myApp: [{ label: 'api', children: { get: {...} } }] }
- *
- * @param {Record<string, *>} customObjectCompletions
- * @param {Record<string, { type?: string, detail?: string, info?: string }>} [customSignatures]
- * @returns {{ topLevel: Record<string, object[]>, nestedPaths: Record<string, object[]>, globalEntries: object[] }}
+ * @example
+ * customObjectCompletions: {
+ *   myApp: {
+ *     meta: { type: 'class', detail: 'Application', info: '自定义应用' },
+ *     members: {
+ *       version: { type: 'property', detail: 'string', info: '版本' },
+ *       api: {
+ *         meta: { type: 'class', detail: 'API', info: 'API 模块' },
+ *         members: {
+ *           type: { meta: { type: 'property', detail: 'string', info: '用户类型字段' } },
+ *           get: { type: 'function', detail: '(id) => User', info: '获取用户' }
+ *         }
+ *       }
+ *     }
+ *   }
+ * }
  */
 export function normalizeCustomObjectCompletions(customObjectCompletions = {}, customSignatures = {}) {
     const topLevel = {};
     const nestedPaths = {};
-
-    function isPlainCompletion(node) {
-        return node && typeof node === 'object' && !Array.isArray(node) && typeof node.label === 'string';
-    }
-
-    function isCompletionArray(node) {
-        return Array.isArray(node);
-    }
-
-    function isTreeRecord(node) {
-        return node && typeof node === 'object' && !Array.isArray(node) && !isPlainCompletion(node);
-    }
-
-    function stripChildren(item) {
-        const {children, ...rest} = item;
-        return rest;
-    }
+    const rootGlobals = new Map();
 
     function targetMap(path) {
         return path.includes('.') ? nestedPaths : topLevel;
@@ -53,87 +46,184 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
         map[path] = mergeCompletionItems([...(map[path] || []), ...normalized]);
     }
 
-    function namespaceEntry(key, child, parentPath) {
-        if (isPlainCompletion(child)) {
-            return stripChildren({...child, label: child.label || key});
+    function readMeta(node, key) {
+        const source = node?.meta && typeof node.meta === 'object' ? node.meta : node;
+        const meta = {};
+        if (source && typeof source === 'object') {
+            for (const k of META_KEYS) {
+                if (source[k] != null && source[k] !== '') {
+                    meta[k] = source[k];
+                }
+            }
         }
-        const path = parentPath ? `${parentPath}.${key}` : key;
-        return {
+        if (!meta.label) {
+            meta.label = key;
+        }
+        return meta;
+    }
+
+    function getMembers(node) {
+        if (!node || typeof node !== 'object') return null;
+        const bag = node.members ?? node.children;
+        if (bag && typeof bag === 'object' && !Array.isArray(bag)) {
+            return bag;
+        }
+        return null;
+    }
+
+    function toPropertyItem(meta, key) {
+        return normalizeCompletionItem({
             label: key,
-            type: 'class',
-            detail: 'object',
-            info: `命名空间: ${path}`
+            type: 'variable',
+            detail: '',
+            info: '',
+            ...meta,
+            label: meta.label || key
+        }, {priority: Priority.USER_CUSTOM_OBJECT_COMPLETIONS});
+    }
+
+    function toGlobalEntry(rootKey, meta) {
+        return {
+            label: rootKey,
+            type: meta.type || 'class',
+            detail: meta.detail || 'object',
+            info: meta.info || `自定义对象: ${rootKey}`,
+            priority: Priority.USER_CUSTOM_OBJECT,
+            boost: 100
         };
     }
 
     /**
-     * @param {string} path - 点号路径，表示「在该路径对象后输入 . 」时的补全列表
+     * @returns {{ kind: 'leaf'|'namespace'|'array', meta?: object, members?: object, items?: array } | null}
      */
-    function processNode(path, node) {
-        if (isCompletionArray(node)) {
-            const directItems = [];
-            for (const item of node) {
-                if (!isPlainCompletion(item)) continue;
-                if (item.children && isTreeRecord(item.children)) {
-                    directItems.push(stripChildren(item));
-                    processNode(`${path}.${item.label}`, item.children);
-                } else {
-                    directItems.push(item);
-                }
-            }
-            addCompletions(path, directItems);
-            return;
+    function parseObjectNode(node, key) {
+        if (Array.isArray(node)) {
+            return {kind: 'array', items: node};
+        }
+        if (!node || typeof node !== 'object') {
+            return null;
         }
 
-        if (isPlainCompletion(node)) {
-            if (node.children && isTreeRecord(node.children)) {
-                addCompletions(path, [stripChildren(node)]);
-                processNode(`${path}.${node.label}`, node.children);
-            } else {
-                addCompletions(path, [node]);
-            }
-            return;
+        const members = getMembers(node);
+        if (members) {
+            return {kind: 'namespace', meta: readMeta(node, key), members};
         }
 
-        if (!isTreeRecord(node)) return;
+        if (typeof node.label === 'string' && node.children && typeof node.children === 'object' && !Array.isArray(node.children)) {
+            return {
+                kind: 'namespace',
+                meta: readMeta(node, node.label),
+                members: node.children
+            };
+        }
 
+        if (node.meta && typeof node.meta === 'object') {
+            return {kind: 'leaf', meta: readMeta(node, key)};
+        }
+
+        const keys = Object.keys(node).filter(k => !STRUCTURE_KEYS.has(k));
+        if (keys.length > 0 && keys.every(k => META_KEYS.has(k))) {
+            return {kind: 'leaf', meta: readMeta(node, key)};
+        }
+
+        if (keys.length > 0) {
+            const implicitMembers = {};
+            for (const k of keys) {
+                implicitMembers[k] = node[k];
+            }
+            return {kind: 'namespace', meta: {label: key}, members: implicitMembers};
+        }
+
+        return {kind: 'leaf', meta: {label: key}};
+    }
+
+    function processNamespace(path, parsed) {
+        const items = [];
+        for (const [memberKey, memberNode] of Object.entries(parsed.members)) {
+            const childParsed = parseObjectNode(memberNode, memberKey);
+            if (!childParsed) continue;
+
+            const childPath = path ? `${path}.${memberKey}` : memberKey;
+
+            if (childParsed.kind === 'namespace') {
+                items.push(toPropertyItem(childParsed.meta, memberKey));
+                processNamespace(childPath, childParsed);
+            } else if (childParsed.kind === 'leaf') {
+                items.push(toPropertyItem(childParsed.meta, memberKey));
+            } else if (childParsed.kind === 'array') {
+                processValueAtPath(childPath, memberNode);
+            }
+        }
+        addCompletions(path, items);
+    }
+
+    function processArrayAtPath(path, items) {
         const directItems = [];
-        for (const [key, child] of Object.entries(node)) {
-            if (isCompletionArray(child)) {
-                processNode(path ? `${path}.${key}` : key, child);
-                continue;
-            }
+        for (const item of items) {
+            if (!item || typeof item !== 'object') continue;
+            const label = item.label;
+            if (!label) continue;
 
-            const childPath = path ? `${path}.${key}` : key;
-
-            if (isPlainCompletion(child) && child.children && isTreeRecord(child.children)) {
-                directItems.push(namespaceEntry(key, child, path));
-                processNode(childPath, child.children);
-            } else if (isTreeRecord(child)) {
-                directItems.push(namespaceEntry(key, child, path));
-                processNode(childPath, child);
-            } else if (isPlainCompletion(child)) {
-                directItems.push(namespaceEntry(key, child, path));
+            const itemParsed = parseObjectNode(item, label);
+            if (itemParsed?.kind === 'namespace') {
+                directItems.push(toPropertyItem(itemParsed.meta, label));
+                processNamespace(path ? `${path}.${label}` : label, itemParsed);
+            } else if (itemParsed?.kind === 'leaf') {
+                directItems.push(toPropertyItem(itemParsed.meta, label));
             }
         }
         addCompletions(path, directItems);
     }
 
-    for (const [key, value] of Object.entries(customObjectCompletions || {})) {
-        if (key.includes('.')) {
-            if (isCompletionArray(value)) {
-                addCompletions(key, value);
-            } else {
-                processNode(key, value);
-            }
-            continue;
+    function processValueAtPath(path, node) {
+        const segmentKey = path.includes('.') ? path.slice(path.lastIndexOf('.') + 1) : path;
+        const parsed = parseObjectNode(node, segmentKey);
+
+        if (!parsed) return;
+
+        if (parsed.kind === 'array') {
+            processArrayAtPath(path, parsed.items);
+            return;
         }
 
-        if (isCompletionArray(value)) {
-            processNode(key, value);
-        } else if (isTreeRecord(value) || isPlainCompletion(value)) {
-            processNode(key, value);
+        if (parsed.kind === 'namespace') {
+            processNamespace(path, parsed);
+            return;
         }
+
+        if (parsed.kind === 'leaf') {
+            addCompletions(path, [toPropertyItem(parsed.meta, segmentKey)]);
+        }
+    }
+
+    function processRoot(rootKey, rootValue) {
+        const parsed = parseObjectNode(rootValue, rootKey);
+        if (!parsed) return;
+
+        if (parsed.kind === 'namespace') {
+            rootGlobals.set(rootKey, toGlobalEntry(rootKey, parsed.meta));
+            processNamespace(rootKey, parsed);
+            return;
+        }
+
+        if (parsed.kind === 'leaf') {
+            rootGlobals.set(rootKey, toGlobalEntry(rootKey, parsed.meta));
+            addCompletions(rootKey, [toPropertyItem(parsed.meta, rootKey)]);
+            return;
+        }
+
+        if (parsed.kind === 'array') {
+            rootGlobals.set(rootKey, toGlobalEntry(rootKey, {}));
+            processArrayAtPath(rootKey, parsed.items);
+        }
+    }
+
+    for (const [key, value] of Object.entries(customObjectCompletions || {})) {
+        if (key.includes('.')) {
+            processValueAtPath(key, value);
+            continue;
+        }
+        processRoot(key, value);
     }
 
     for (const [sigPath, sig] of Object.entries(customSignatures || {})) {
@@ -153,21 +243,22 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
         map[objPath] = existing;
     }
 
-    const globalEntries = Object.keys(topLevel).map(name => ({
-        label: name,
-        type: 'class',
-        detail: 'object',
-        info: `自定义对象: ${name}`,
-        priority: Priority.USER_CUSTOM_OBJECT,
-        boost: 100
-    }));
+    const globalEntries = [];
+    const seen = new Set();
+
+    for (const [name, entry] of rootGlobals) {
+        globalEntries.push(entry);
+        seen.add(name);
+    }
+
+    for (const name of Object.keys(topLevel)) {
+        if (seen.has(name)) continue;
+        globalEntries.push(toGlobalEntry(name, {}));
+    }
 
     return {topLevel, nestedPaths, globalEntries};
 }
 
-/**
- * 按对象路径查找自定义对象属性补全（支持 myApp.api.user 等多段路径）
- */
 export function resolveCustomObjectCompletions(objectName, {topLevel = {}, nestedPaths = {}} = {}) {
     if (!objectName) return null;
     if (nestedPaths[objectName]?.length) return nestedPaths[objectName];
@@ -175,9 +266,6 @@ export function resolveCustomObjectCompletions(objectName, {topLevel = {}, neste
     return null;
 }
 
-/**
- * 合并环境内置与用户声明的顶层对象补全表
- */
 export function mergeBuiltinWithCustomObjects({
     baseBuiltin = {},
     customObjectCompletions = {},

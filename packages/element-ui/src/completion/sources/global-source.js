@@ -26,6 +26,7 @@ export function createGlobalCompletionSource(options = {}) {
     const {
         customCompletions = [],
         customObjects = {},
+        customObjectGlobals = [],
         environment
     } = options;
 
@@ -49,7 +50,13 @@ export function createGlobalCompletionSource(options = {}) {
         }
     }
 
-    // 添加用户自定义对象作为全局变量
+    for (const entry of customObjectGlobals) {
+        if (!allGlobals.some(g => g.label === entry.label)) {
+            allGlobals.push(entry);
+        }
+    }
+
+    // 添加用户自定义运行时对象作为全局变量
     for (const name of Object.keys(customObjects)) {
         if (!allGlobals.some(g => g.label === name)) {
             allGlobals.push({

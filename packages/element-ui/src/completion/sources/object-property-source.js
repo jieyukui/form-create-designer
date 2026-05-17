@@ -7,6 +7,7 @@ import {getWindowScope} from '../core/environment';
 import {detectLiteralPrototypeType} from '../utils/literal-prototype';
 import {parsePropertyAccess} from '../utils/expression-object';
 import {shouldBlockCompletionInLiteral} from '../utils/string-context';
+import {resolveCustomObjectCompletions} from '../utils/custom-object-completions';
 
 /**
  * 创建对象属性补全源
@@ -30,15 +31,19 @@ export function createObjectPropertyCompletionSource(options = {}) {
     const {
         customObjects = {},
         customSignatures = {},
+        customObjectRegistry = {topLevel: {}, nestedPaths: {}},
         environment,
         includePrototypes = true,
         windowFallbackEnabled = true
     } = options;
 
-    // 获取当前环境可用的内置数据
-    const builtinCompletions = environment
-        ? getAvailableBuiltinData(environment)
-        : {};
+    const {topLevel, nestedPaths} = customObjectRegistry;
+
+    // 获取当前环境可用的内置数据，并合并用户声明的顶层对象表
+    const builtinCompletions = {
+        ...(environment ? getAvailableBuiltinData(environment) : {}),
+        ...topLevel
+    };
 
     /**
      * 解析对象名：处理 window.xxx 自动映射
@@ -94,7 +99,7 @@ export function createObjectPropertyCompletionSource(options = {}) {
         let completions = [];
         let sourcePriority = Priority.PREDEFINED_BUILTIN;
 
-        // ==================== 1. 用户自定义对象（最高优先级） ====================
+        // ==================== 1. 用户自定义运行时对象（最高优先级，仅顶层名） ====================
         if (customObjects[targetName]) {
             const obj = customObjects[targetName];
             const customCompletions = buildCustomObjectCompletions(
@@ -108,20 +113,40 @@ export function createObjectPropertyCompletionSource(options = {}) {
             sourcePriority = Priority.USER_CUSTOM_OBJECT;
         }
 
-        // ==================== 2. 处理 window 对象访问 ====================
-        else if (isWindowAccess) {
-            // window.xxx：融合所有 window 可用的补全
+        // ==================== 2. 用户声明的对象属性补全（支持多段路径 myApp.api.user） ====================
+        else {
+            const customObjectItems = resolveCustomObjectCompletions(targetName, {
+                topLevel,
+                nestedPaths
+            });
+            if (customObjectItems) {
+                completions = applyCustomSignatures(
+                    [...customObjectItems],
+                    targetName,
+                    customSignatures
+                ).map(c => ({
+                    ...c,
+                    boost: 95,
+                    source: 'custom-object'
+                }));
+                sourcePriority = Priority.USER_CUSTOM_OBJECT_COMPLETIONS;
+            }
+        }
+
+        // ==================== 3. 处理 window 对象访问 ====================
+        if (completions.length === 0 && isWindowAccess) {
             completions = buildWindowCompletions(
                 builtinCompletions,
                 customObjects,
                 customSignatures,
+                topLevel,
                 windowFallbackEnabled
             );
             sourcePriority = Priority.PREDEFINED_BUILTIN;
         }
 
-        // ==================== 3. 预定义内置对象 ====================
-        else if (builtinCompletions[targetName]) {
+        // ==================== 4. 预定义内置对象 ====================
+        else if (completions.length === 0 && builtinCompletions[targetName]) {
             completions = applyCustomSignatures(
                 [...builtinCompletions[targetName]],
                 targetName,
@@ -134,8 +159,8 @@ export function createObjectPropertyCompletionSource(options = {}) {
             sourcePriority = Priority.PREDEFINED_BUILTIN;
         }
 
-        // ==================== 4. 原型链补全 ====================
-        else {
+        // ==================== 5. 原型链补全 ====================
+        else if (completions.length === 0) {
             // 检查字面量原型链
             const literalProto = includePrototypes !== false
                 ? detectLiteralPrototypeType(line, objectName)
@@ -158,14 +183,14 @@ export function createObjectPropertyCompletionSource(options = {}) {
             }
         }
 
-        // ==================== 5. 过滤 ====================
+        // ==================== 6. 过滤 ====================
         if (partialProp) {
             completions = completions.filter(c =>
                 c.label.toLowerCase().startsWith(partialProp.toLowerCase())
             );
         }
 
-        // ==================== 6. 兜底：如果是 window 访问且结果为空，使用运行时解析 ====================
+        // ==================== 7. 兜底：如果是 window 访问且结果为空，使用运行时解析 ====================
         if (completions.length === 0 && isWindowAccess && windowFallbackEnabled) {
             const runtimeCompletions = resolveWindowRuntimeProperties(
                 partialProp,
@@ -240,7 +265,7 @@ function buildCustomObjectCompletions(objectName, obj, customSignatures) {
 /**
  * 构建 window 对象的补全（融合内置 + 自定义）
  */
-function buildWindowCompletions(builtinCompletions, customObjects, customSignatures, includeRuntime) {
+function buildWindowCompletions(builtinCompletions, customObjects, customSignatures, topLevel, includeRuntime) {
     const allCompletions = [];
     const seen = new Set();
 
@@ -265,7 +290,20 @@ function buildWindowCompletions(builtinCompletions, customObjects, customSignatu
         allCompletions.push({...prop, boost: 75, source: 'window-global'});
     }
 
-    // 添加自定义对象
+    for (const name of Object.keys(topLevel || {})) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        allCompletions.push({
+            label: name,
+            type: 'class',
+            detail: 'object',
+            info: `用户自定义对象: ${name}`,
+            boost: 98,
+            source: 'window-custom-object'
+        });
+    }
+
+    // 添加自定义运行时对象
     for (const name of Object.keys(customObjects)) {
         if (seen.has(name)) continue;
         seen.add(name);

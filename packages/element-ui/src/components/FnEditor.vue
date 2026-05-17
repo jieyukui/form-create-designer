@@ -185,31 +185,12 @@ export default defineComponent({
         load() {
             this.$nextTick(() => {
                 let value = this.tidyValue();
+                const editorCfg = this.codeEditorConfig || {};
                 const completionConfig = getAutocompletionConfig({
-                    customCompletions: [
-                        {
-                            label: 'myApp',
-                            type: 'class',
-                            detail: 'Application',
-                            info: '自定义应用对象'
-                        }
-                    ],
-                    customObjects: {
-                        api: {
-                            request: (url, options) => {
-                                return new Promise((resolve, reject) => {
-                                    resolve(1)
-                                })
-                            }
-                        }  // 运行时对象
-                    },
-                    customSignatures: {
-                        'api.request': {
-                            type: 'function',
-                            detail: '(url: string, options?: RequestOptions) => Promise<Response>',
-                            info: '发送 API 请求'
-                        }
-                    }
+                    customCompletions: editorCfg.customCompletions,
+                    customObjects: editorCfg.customObjects,
+                    customSignatures: editorCfg.customSignatures,
+                    customObjectCompletions: editorCfg.customObjectCompletions
                 });
 
                 const extensions = [
@@ -246,7 +227,6 @@ export default defineComponent({
                         typescript: false
                     }),
                     autocompletion(completionConfig),
-                    // autocompletion(getAutocompletionConfig(this.codeEditorConfig)),
                     EditorView.updateListener.of((update) => {
                         if (update.docChanged) {
                             this.visible = true;

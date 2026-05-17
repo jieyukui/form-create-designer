@@ -11,7 +11,7 @@ import {EditorState} from '@codemirror/state';
 import {javascript} from '@codemirror/lang-javascript';
 import {CompletionContext} from '@codemirror/autocomplete';
 import {ContextType, analyzeCompletionContext} from '../core/context-analyzer.js';
-import {createJavaScriptCompletions} from '../index.js';
+import {createJavaScriptCompletions, normalizeCustomObjectCompletions} from '../index.js';
 import {detectLiteralPrototypeType} from '../utils/literal-prototype.js';
 import {parsePropertyAccess} from '../utils/expression-object.js';
 import {getQuoteContextAt, QuoteContext, shouldBlockCompletionInLiteral} from '../utils/string-context.js';
@@ -41,13 +41,28 @@ const testEnvironment = {
     features: ['localStorage', 'sessionStorage']
 };
 
-async function completeAt(code, pos = code.length, explicit = false) {
+const sampleCustomObjectTree = {
+    myApp: {
+        version: {label: 'version', type: 'property', detail: 'string', info: '版本'},
+        request: {label: 'request', type: 'function', detail: '()', info: '请求'},
+        api: {
+            user: {
+                get: {label: 'get', type: 'function', detail: '(id)', info: '获取用户'},
+                list: {label: 'list', type: 'function', detail: '()', info: '列表'}
+            },
+            post: {label: 'post', type: 'function', detail: '(data)', info: '提交'}
+        }
+    }
+};
+
+async function completeAt(code, pos = code.length, explicit = false, extraOptions = {}) {
     const state = createState(code, pos);
     const cmCtx = new CompletionContext(state, pos, explicit);
     const config = createJavaScriptCompletions({
         includeWindow: false,
         includeChain: false,
-        environment: testEnvironment
+        environment: testEnvironment,
+        ...extraOptions
     });
     const source = config.override[0];
     return source(cmCtx);
@@ -388,6 +403,32 @@ const completionCases = [
             },
         ]
     },
+    {
+        group: 'customObjectCompletions 树形',
+        completionOptions: {customObjectCompletions: sampleCustomObjectTree},
+        cases: [
+            {
+                name: 'myApp 顶层属性',
+                code: 'myApp.',
+                require: ['version', 'request', 'api']
+            },
+            {
+                name: 'myApp.api 二级',
+                code: 'myApp.api.',
+                require: ['user', 'post']
+            },
+            {
+                name: 'myApp.api.user 三级',
+                code: 'myApp.api.user.',
+                require: ['get', 'list']
+            },
+            {
+                name: '全局补全 myApp',
+                code: 'myA',
+                require: ['myApp']
+            },
+        ]
+    },
 ];
 
 function runContextCase(testCase) {
@@ -429,9 +470,31 @@ function runContextCase(testCase) {
     return {ok, got: {type: got.type, isValid: got.isValid, objectName: got.objectName}, expect: exp, details};
 }
 
-async function runCompletionCase(testCase) {
+function runNormalizeObjectCompletionsTests() {
+    const {topLevel, nestedPaths} = normalizeCustomObjectCompletions(sampleCustomObjectTree);
+    const checks = [
+        ['topLevel myApp', topLevel.myApp?.map(c => c.label).sort().join(','), 'api,request,version'],
+        ['nested myApp.api', nestedPaths['myApp.api']?.map(c => c.label).sort().join(','), 'post,user'],
+        ['nested myApp.api.user', nestedPaths['myApp.api.user']?.map(c => c.label).sort().join(','), 'get,list'],
+    ];
+    let ok = true;
+    for (const [name, got, expect] of checks) {
+        if (got !== expect) {
+            ok = false;
+            console.error(`  normalize ${name}: got "${got}" !== "${expect}"`);
+        }
+    }
+    return ok;
+}
+
+async function runCompletionCase(testCase, groupOptions = {}) {
     const pos = testCase.pos ?? testCase.code.length;
-    const result = await completeAt(testCase.code, pos, testCase.explicit === true);
+    const result = await completeAt(
+        testCase.code,
+        pos,
+        testCase.explicit === true,
+        {...groupOptions, ...testCase.completionOptions}
+    );
     const gotLabels = labels(result).slice(0, 12);
 
     let ok = true;
@@ -502,14 +565,20 @@ async function main() {
         }
     }
 
-    console.log('\n## 二、补全源集成（createJavaScriptCompletions）\n');
+    console.log('\n## 二、customObjectCompletions 规范化\n');
+    total++;
+    const normOk = runNormalizeObjectCompletionsTests();
+    if (normOk) passed++;
+    console.log(`| normalizeCustomObjectCompletions | 树形展开 | ${padStatus(normOk)} | topLevel + nestedPaths |\n`);
+
+    console.log('## 三、补全源集成（createJavaScriptCompletions）\n');
     console.log('| 分组 | 场景 | 状态 | 说明 |');
     console.log('|------|------|:---:|------|');
 
     for (const group of completionCases) {
         for (const tc of group.cases) {
             total++;
-            const {ok, gotLabels, count, details} = await runCompletionCase(tc);
+            const {ok, gotLabels, count, details} = await runCompletionCase(tc, group.completionOptions);
             if (ok) passed++;
             const note = ok
                 ? `${count} 项${gotLabels.length ? `，如: ${gotLabels.join(', ')}` : ''}`

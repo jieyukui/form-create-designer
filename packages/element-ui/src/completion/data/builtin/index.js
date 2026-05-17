@@ -502,3 +502,9 @@ export function getAvailableBuiltinData(environment) {
 
     return available;
 }
+
+export {
+    mergeBuiltinWithCustomObjects,
+    normalizeCustomObjectCompletions,
+    resolveCustomObjectCompletions
+} from '../../utils/custom-object-completions';

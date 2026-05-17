@@ -64,6 +64,23 @@ const completionConfig = getAutocompletionConfig({
             info: '自定义应用对象' 
         }
     ],
+    customObjectCompletions: {
+        myApp: [
+            { label: 'version', type: 'property', detail: 'string', info: '版本' },
+            {
+                label: 'api',
+                type: 'class',
+                detail: 'API',
+                info: 'API 模块',
+                children: {
+                    user: {
+                        get: { label: 'get', type: 'function', detail: '(id)', info: '获取用户' },
+                        list: { label: 'list', type: 'function', detail: '()', info: '列表' }
+                    }
+                }
+            }
+        ]
+    },
     customObjects: {
         api: window.myAPI  // 运行时对象
     },
@@ -79,7 +96,67 @@ const completionConfig = getAutocompletionConfig({
 // 在 CodeMirror 中使用
 // { extensions: [autocompletion(completionConfig)] }
 ```
-
+三种写法（可混用）
+1. 扁平 Record（与 Math 相同）
+   适合路径固定、层级不深：
+```javascript
+customObjectCompletions: {
+myApp: [
+{ label: 'version', type: 'property', detail: 'string', info: '应用版本' },
+{ label: 'request', type: 'function', detail: '(url) => Promise', info: '发送请求' }
+],
+'myApp.api': [
+{ label: 'user', type: 'class', detail: 'UserAPI', info: '用户模块' },
+{ label: 'post', type: 'function', detail: '(data) => void', info: '提交' }
+],
+'myApp.api.user': [
+{ label: 'get', type: 'function', detail: '(id) => User', info: '获取用户' },
+{ label: 'list', type: 'function', detail: '() => User[]', info: '用户列表' }
+]
+}
+```
+键为点号路径：在 myApp.api.user. 后弹出时，查找键 'myApp.api.user'。
+2. 树形对象（推荐，层级多时更清晰）
+   属性名即路径段，无需手写点号键：
+```javascript
+customObjectCompletions: {
+  myApp: {
+    version: { label: 'version', type: 'property', detail: 'string', info: '应用版本' },
+    request: { label: 'request', type: 'function', detail: '(url) => Promise', info: '发送请求' },
+    api: {
+      post: { label: 'post', type: 'function', detail: '(data) => void', info: '提交' },
+      user: {
+        get: { label: 'get', type: 'function', detail: '(id) => User', info: '获取用户' },
+        list: { label: 'list', type: 'function', detail: '() => User[]', info: '用户列表' }
+      }
+    }
+  }
+}
+```
+• myApp. → version、request、api
+• myApp.api. → post、user
+• myApp.api.user. → get、list
+中间节点（如 api、user）会自动生成 type: 'class' 的命名空间项。
+3. 数组 + children（与 Math 数组风格一致）
+```javascript
+customObjectCompletions: {
+  myApp: [
+    { label: 'version', type: 'property', detail: 'string', info: '版本' },
+    {
+      label: 'api',
+      type: 'class',
+      detail: 'API',
+      info: 'API 模块',
+      children: {
+        user: {
+          get: { label: 'get', type: 'function', detail: '(id)', info: '获取用户' },
+          list: { label: 'list', type: 'function', detail: '()', info: '列表' }
+        }
+      }
+    }
+  ]
+}
+```
 ### 测试文件
 路径：packages/element-ui/src/completion/tests/run-completion-tests.mjs
 ```bash

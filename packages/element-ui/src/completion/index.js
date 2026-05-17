@@ -7,6 +7,7 @@ import {createWindowFallbackSource} from './sources/window-fallback-source';
 import {createChainCompletionSource} from './sources/chain-source';
 import {mergeCompletionSources} from './utils/merge';
 import {normalizeCompletionItem} from './utils/normalize';
+import {normalizeCustomObjectCompletions} from './utils/custom-object-completions';
 import {
     createContextAwareGlobalSource,
     createContextAwarePropertySource,
@@ -23,6 +24,10 @@ import {
  *   { objName: realObject }
  * @param {Object} options.customSignatures - 用户自定义签名
  *   { 'objName.methodName': { type, detail, info } }
+ * @param {Object} options.customObjectCompletions - 自定义对象属性补全（声明式，写法同 Math 数据表）
+ *   扁平: { myApp: Completion[], 'myApp.api': Completion[] }
+ *   树形: { myApp: { request: Completion, api: { user: { get: Completion } } } }
+ *   数组+children: { myApp: [{ label: 'api', children: { ... } }] }
  * @param {boolean} options.includeWindow - 是否包含 window 对象扫描（默认 true）
  * @param {boolean} options.includeChain - 是否包含链式调用推断（默认 true）
  * @param {boolean} options.includePrototypes - 是否包含原型链补全（默认 true）
@@ -35,6 +40,7 @@ export function createJavaScriptCompletions(options = {}) {
         customCompletions = [],
         customObjects = {},
         customSignatures = {},
+        customObjectCompletions = {},
         includeWindow = true,
         includeChain = true,
         includePrototypes = true,
@@ -52,6 +58,11 @@ export function createJavaScriptCompletions(options = {}) {
         });
     }
 
+    const customObjectRegistry = normalizeCustomObjectCompletions(
+        customObjectCompletions,
+        customSignatures
+    );
+
     // 2. 创建源管理器
     const sourceManager = new CompletionSourceManager();
 
@@ -59,6 +70,7 @@ export function createJavaScriptCompletions(options = {}) {
     const rawObjectPropertySource = createObjectPropertyCompletionSource({
         customObjects,
         customSignatures,
+        customObjectRegistry,
         environment,
         includePrototypes,
         windowFallbackEnabled: includeWindow
@@ -76,6 +88,7 @@ export function createJavaScriptCompletions(options = {}) {
     const rawGlobalSource = createGlobalCompletionSource({
         customCompletions,
         customObjects,
+        customObjectGlobals: customObjectRegistry.globalEntries,
         environment
     });
     const globalSource = createContextAwareGlobalSource(rawGlobalSource, {
@@ -106,7 +119,10 @@ export function createJavaScriptCompletions(options = {}) {
             const rawWindowFallbackSource = createWindowFallbackSource({
                 windowScope,
                 environment,
-                knownNames: new Set(Object.keys(customObjects))
+                knownNames: new Set([
+                    ...Object.keys(customObjects),
+                    ...Object.keys(customObjectRegistry.topLevel)
+                ])
             });
             const windowFallbackSource = createContextAwareWindowFallbackSource(
                 rawWindowFallbackSource,
@@ -186,4 +202,9 @@ export {detectLiteralPrototypeType, extractImmediateObjectExpression} from './ut
 export {parsePropertyAccess} from './utils/expression-object';
 export {getQuoteContextAt, QuoteContext, shouldBlockCompletionInLiteral} from './utils/string-context';
 export {decorateKeywordCompletion, decorateKeywordCompletions, shouldKeywordHaveTrailingSpace} from './utils/keyword-apply';
+export {
+    normalizeCustomObjectCompletions,
+    resolveCustomObjectCompletions,
+    mergeBuiltinWithCustomObjects
+} from './utils/custom-object-completions';
 export {keywordCompletions} from './data/globals';

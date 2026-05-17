@@ -8,7 +8,7 @@ export {createObjectPropertyCompletionSource} from '../completion/sources/object
 
 import {detectEnvironment, getWindowScope} from '../completion/core/environment';
 import {filterBuiltinCompletionsByEnvironment} from '../completion/data/builtin/env-filter';
-import {buildMergedBuiltinMap} from '../completion/data/builtin';
+import {mergeBuiltinWithCustomObjects} from '../completion/data/builtin';
 import {createGlobalCompletionSource as cmCreateGlobalCompletionSource} from '../completion/sources/global-source';
 import {createObjectPropertyCompletionSource as cmCreateObjectPropertyCompletionSource} from '../completion/sources/object-property-source';
 import {createWindowFallbackSource} from '../completion/sources/window-fallback-source';
@@ -27,10 +27,9 @@ export function setupJavaScriptCompletions(options = {}) {
     const baseEntries = Object.fromEntries(
         Object.entries(baseFiltered).filter(([name]) => shouldOfferBuiltinTable(name))
     );
-    const mergedBuiltin = buildMergedBuiltinMap({
-        environment: env,
+    const mergedBuiltin = mergeBuiltinWithCustomObjects({
         baseBuiltin: baseEntries,
-        customBuiltin: options.customBuiltinCompletions || {}
+        customObjectCompletions: options.customObjectCompletions || {}
     });
     const knownNames = new Set(Object.keys(mergedBuiltin));
     const optFull = {
@@ -60,7 +59,7 @@ export function setupJavaScriptCompletions(options = {}) {
  * 简化的配置：直接返回 autocompletion 的配置对象
  * @param {Object} options - 选项对象
  * @param {Array} options.customCompletions - 用户自定义补全项 [{ label, type, detail, info, path? }]
- * @param {Object} options.customBuiltinCompletions 自定义对象属性补全（输入 对象名. 时弹出的补全）
+ * @param {Object} options.customObjectCompletions 自定义对象属性补全（输入 对象名. 时弹出的补全）
  * @param {Object} options.customObjects - 用户自定义的对象 { objName: realObject }
  * @param {Object} options.customSignatures - 用户自定义的函数签名 { 'obj.method': { detail, info } }
  * @param {boolean} options.includeWindow - 是否包含 window 对象，默认 true

@@ -278,12 +278,17 @@ export interface Completion {
     boost?: number;
 }
 
-//设计器组件的props.codeEditor配置 TODO，暂时不生效，可以现在配置，等待接入代码智能补全
+// 设计器 FnEditor 的 codeEditorConfig（通过 FcDesigner 的 codeEditorConfig 传入）
 export interface CodeEditorConfig {
     // 自定义全局补全（输入时直接弹出的顶层补全）
     customCompletions?: Completion[],
-    // 自定义对象属性补全（输入 对象名. 时弹出的补全）
-    customBuiltinCompletions?: Record<string, Completion[]>;
+    /**
+     * 自定义对象属性补全（声明式，非运行时扫描），支持三种形态（可混用）：
+     * 1. 扁平：{ myApp: Completion[], 'myApp.api': Completion[] }
+     * 2. 树形：{ myApp: { request: Completion, api: { user: { get: Completion } } } }
+     * 3. 数组+children：{ myApp: [{ label: 'api', children: { get: Completion } }] }
+     */
+    customObjectCompletions?: Record<string, Completion[] | Completion | Record<string, unknown>>;
     // 自定义对象（动态扫描属性）
     customObjects?: Record<string, any>;
     // 自定义签名覆盖

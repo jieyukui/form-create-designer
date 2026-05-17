@@ -230,3 +230,77 @@ export const windowGlobalProps = [
     {label: 'Infinity', type: 'constant', detail: 'number', info: '无穷大'},
     {label: 'undefined', type: 'constant', detail: 'undefined', info: '未定义'},
 ];
+
+/**
+ * JavaScript 关键字补全（供 global-source 使用，非 window 属性）
+ *
+ * trailingSpace: false 表示补全后不追加空格（后接 ; . : 等）
+ * 未设置时由 keyword-apply.js 按关键字类型自动判断
+ */
+export const keywordCompletions = [
+    // ==================== 声明 ====================
+    {label: 'let', type: 'keyword', detail: 'let', info: '声明块级作用域变量', boost: 95},
+    {label: 'const', type: 'keyword', detail: 'const', info: '声明常量', boost: 95},
+    {label: 'var', type: 'keyword', detail: 'var', info: '声明变量', boost: 90},
+    {label: 'function', type: 'keyword', detail: 'function', info: '声明函数', boost: 95},
+    {label: 'class', type: 'keyword', detail: 'class', info: '声明类', boost: 95},
+    {label: 'async', type: 'keyword', detail: 'async', info: '声明异步函数', boost: 90},
+    {label: 'static', type: 'keyword', detail: 'static', info: '类静态成员', boost: 82},
+    {label: 'get', type: 'keyword', detail: 'get', info: 'getter 访问器', boost: 80},
+    {label: 'set', type: 'keyword', detail: 'set', info: 'setter 访问器', boost: 80},
+
+    // ==================== 条件与分支 ====================
+    {label: 'if', type: 'keyword', detail: 'if', info: '条件语句', boost: 90},
+    {label: 'else', type: 'keyword', detail: 'else', info: '条件语句的否则分支', boost: 85},
+    {label: 'switch', type: 'keyword', detail: 'switch', info: 'switch 分支语句', boost: 85},
+    {label: 'case', type: 'keyword', detail: 'case', info: 'switch 的分支', boost: 80},
+    {label: 'default', type: 'keyword', detail: 'default', info: 'switch 默认分支 / export default', boost: 80, trailingSpace: false},
+
+    // ==================== 循环 ====================
+    {label: 'for', type: 'keyword', detail: 'for', info: '循环语句', boost: 90},
+    {label: 'while', type: 'keyword', detail: 'while', info: 'while 循环', boost: 85},
+    {label: 'do', type: 'keyword', detail: 'do', info: 'do...while 循环', boost: 80},
+    {label: 'in', type: 'keyword', detail: 'in', info: 'for...in 遍历对象属性', boost: 82},
+    {label: 'of', type: 'keyword', detail: 'of', info: 'for...of 遍历可迭代对象', boost: 82},
+    {label: 'break', type: 'keyword', detail: 'break', info: '跳出当前循环或 switch', boost: 88, trailingSpace: false},
+    {label: 'continue', type: 'keyword', detail: 'continue', info: '跳过本次循环，进入下一次', boost: 88, trailingSpace: false},
+
+    // ==================== 跳转与返回 ====================
+    {label: 'return', type: 'keyword', detail: 'return', info: '返回语句', boost: 95},
+    {label: 'throw', type: 'keyword', detail: 'throw', info: '抛出异常', boost: 85},
+
+    // ==================== 异常处理 ====================
+    {label: 'try', type: 'keyword', detail: 'try', info: '异常处理 try 块', boost: 85},
+    {label: 'catch', type: 'keyword', detail: 'catch', info: '异常处理 catch 块', boost: 85},
+    {label: 'finally', type: 'keyword', detail: 'finally', info: '异常处理 finally 块', boost: 80},
+
+    // ==================== 模块 ====================
+    {label: 'import', type: 'keyword', detail: 'import', info: '导入模块', boost: 90},
+    {label: 'export', type: 'keyword', detail: 'export', info: '导出模块', boost: 90},
+    {label: 'from', type: 'keyword', detail: 'from', info: 'import ... from 模块路径', boost: 78},
+    {label: 'as', type: 'keyword', detail: 'as', info: 'import/export 别名', boost: 76},
+
+    // ==================== 类与继承 ====================
+    {label: 'extends', type: 'keyword', detail: 'extends', info: '类继承', boost: 85},
+    {label: 'super', type: 'keyword', detail: 'super', info: '调用父类构造函数或方法', boost: 85, trailingSpace: false},
+    {label: 'new', type: 'keyword', detail: 'new', info: '创建实例', boost: 90},
+
+    // ==================== 运算符关键字 ====================
+    {label: 'typeof', type: 'keyword', detail: 'typeof', info: '返回操作数的类型', boost: 85},
+    {label: 'instanceof', type: 'keyword', detail: 'instanceof', info: '检查是否为指定类的实例', boost: 85},
+    {label: 'delete', type: 'keyword', detail: 'delete', info: '删除对象属性', boost: 80},
+    {label: 'void', type: 'keyword', detail: 'void', info: 'void 运算符，返回 undefined', boost: 75},
+
+    // ==================== 异步 / 生成器 ====================
+    {label: 'await', type: 'keyword', detail: 'await', info: '等待 Promise 完成', boost: 90},
+    {label: 'yield', type: 'keyword', detail: 'yield', info: '生成器 yield 表达式', boost: 85},
+
+    // ==================== 字面量 ====================
+    {label: 'this', type: 'keyword', detail: 'this', info: '当前执行上下文', boost: 90, trailingSpace: false},
+    {label: 'null', type: 'keyword', detail: 'null', info: '空值', boost: 85, trailingSpace: false},
+    {label: 'true', type: 'keyword', detail: 'boolean', info: '布尔值：真', boost: 80, trailingSpace: false},
+    {label: 'false', type: 'keyword', detail: 'boolean', info: '布尔值：假', boost: 80, trailingSpace: false},
+
+    // ==================== 调试 ====================
+    {label: 'debugger', type: 'keyword', detail: 'debugger', info: '断点调试语句', boost: 75, trailingSpace: false},
+];

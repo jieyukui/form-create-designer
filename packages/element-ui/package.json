@@ -30,7 +30,9 @@
 
         "token:setup": "node scripts/token-manager.js setup",
         "token:status": "node scripts/token-manager.js status",
-        "token:clean": "node scripts/token-manager.js clean"
+        "token:clean": "node scripts/token-manager.js clean",
+        "test:completion": "npx --yes jiti src/completion/tests/run-completion-tests.mjs",
+        "test:completion:verbose": "npx --yes jiti src/completion/tests/run-completion-tests.mjs --verbose"
     },
     "repository": {
         "type": "git",

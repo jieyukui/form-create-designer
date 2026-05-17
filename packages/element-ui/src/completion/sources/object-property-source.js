@@ -4,6 +4,9 @@ import {windowGlobalProps} from '../data/globals';
 import {parseFunctionSignature} from '../resolvers/signature-parser';
 import {Priority} from '../core/priority';
 import {getWindowScope} from '../core/environment';
+import {detectLiteralPrototypeType} from '../utils/literal-prototype';
+import {parsePropertyAccess} from '../utils/expression-object';
+import {shouldBlockCompletionInLiteral} from '../utils/string-context';
 
 /**
  * 创建对象属性补全源
@@ -28,6 +31,7 @@ export function createObjectPropertyCompletionSource(options = {}) {
         customObjects = {},
         customSignatures = {},
         environment,
+        includePrototypes = true,
         windowFallbackEnabled = true
     } = options;
 
@@ -60,37 +64,12 @@ export function createObjectPropertyCompletionSource(options = {}) {
         };
     }
 
-    /**
-     * 检测是否为字面量原型链访问
-     * 例如：[].xxx -> Array.prototype
-     *       "".xxx -> String.prototype
-     *       1..xxx -> Number.prototype
-     */
-    function detectLiteralPrototype(line, objectName) {
-        // 检测 [].property
-        if (objectName === ']' && line.endsWith('[')) {
-            return {type: 'Array', label: 'Array.prototype'};
-        }
-        // 检测 "".property 或 ''.property
-        if ((objectName === '"' || objectName === '\'') &&
-            (line.endsWith('"') || line.endsWith('\''))) {
-            return {type: 'String', label: 'String.prototype'};
-        }
-        // 检测数字字面量 .property（如 1.xxx、1..xxx）
-        const numMatch = line.match(/(\d+)\.(\w*)$/);
-        if (numMatch) {
-            return {type: 'Number', label: 'Number.prototype'};
-        }
-        // 检测 /regex/.property
-        const regexMatch = line.match(/\/[^/]+\/\.(\w*)$/);
-        if (regexMatch) {
-            return {type: 'RegExp', label: 'RegExp.prototype'};
-        }
-        return null;
-    }
-
     return (context) => {
         const cursor = context.pos;
+
+        if (shouldBlockCompletionInLiteral(context.state.doc, cursor)) {
+            return null;
+        }
 
         // 优先使用上下文分析器提供的信息
         const ctx = context._completionContext;
@@ -99,18 +78,15 @@ export function createObjectPropertyCompletionSource(options = {}) {
         // 回退到正则匹配（但做更多检查）, 获取光标前的文本（最多取 500 字符）
         const line = context.state.sliceDoc(Math.max(0, cursor - 500), cursor);
 
-        if (ctx && ctx.objectName !== null) {
-            // 从语法分析器获取
+        const lineParsed = parsePropertyAccess(line);
+        if (lineParsed) {
+            objectName = lineParsed.objectName;
+            partialProp = lineParsed.partialProp;
+        } else if (ctx && ctx.objectName !== null) {
             objectName = ctx.objectName;
             partialProp = ctx.partialProp;
         } else {
-            // 更严格的匹配：排除声明关键字后的位置
-            const strictMatch = line.match(
-                /(?<!\b(const|let|var|function|class|if|for|while|switch|catch)\s+[\w$]*)([\w$\]'"`)]+)\.([\w$]*)$/
-            );
-            if (!strictMatch) return null;
-
-            [, objectName, partialProp] = strictMatch;
+            return null;
         }
 
         const {targetName, isWindowAccess} = resolveObjectName(objectName);
@@ -161,7 +137,9 @@ export function createObjectPropertyCompletionSource(options = {}) {
         // ==================== 4. 原型链补全 ====================
         else {
             // 检查字面量原型链
-            const literalProto = detectLiteralPrototype(line, objectName);
+            const literalProto = includePrototypes !== false
+                ? detectLiteralPrototypeType(line, objectName)
+                : null;
             if (literalProto && prototypeCompletions[literalProto.type]) {
                 completions = [...prototypeCompletions[literalProto.type]].map(c => ({
                     ...c,

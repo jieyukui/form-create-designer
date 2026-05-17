@@ -94,8 +94,15 @@ export function createContextAwareGlobalSource(sourceFn, options = {}) {
             ContextType.COMMENT,
             ContextType.STRING,
             ContextType.TEMPLATE_STRING,
+            ContextType.DECLARATION,
+            ContextType.ASSIGNMENT_LEFT,
+            ContextType.PROPERTY_ACCESS,
+            ContextType.PROPERTY_NAME,
+            ContextType.FUNCTION_PARAMS,
+            ContextType.FOR_LOOP,
+            ContextType.CATCH_PARAM,
+            ContextType.MULTILINE_DECL,
         ],
-        // 声明位置允许全局补全，但需要特殊处理
         ...options
     });
 }
@@ -114,7 +121,26 @@ export function createContextAwarePropertySource(sourceFn, options = {}) {
             ContextType.COMMENT,
             ContextType.STRING,
             ContextType.TEMPLATE_STRING,
+            ContextType.DECLARATION,
+            ContextType.ASSIGNMENT_LEFT,
+            ContextType.FOR_LOOP,
+            ContextType.CATCH_PARAM,
+            ContextType.MULTILINE_DECL,
         ],
+        ...options
+    });
+}
+
+/**
+ * window 兜底补全：仅在独立标识符位置生效
+ */
+export function createContextAwareWindowFallbackSource(sourceFn, options = {}) {
+    return createContextAwareSource(sourceFn, {
+        allowedContexts: [
+            ContextType.IDENTIFIER,
+            ContextType.UNKNOWN,
+        ],
+        blockedContexts: [],
         ...options
     });
 }

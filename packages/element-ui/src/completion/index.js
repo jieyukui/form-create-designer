@@ -7,7 +7,11 @@ import {createWindowFallbackSource} from './sources/window-fallback-source';
 import {createChainCompletionSource} from './sources/chain-source';
 import {mergeCompletionSources} from './utils/merge';
 import {normalizeCompletionItem} from './utils/normalize';
-import {createContextAwareGlobalSource, createContextAwarePropertySource} from './sources/context-aware-source';
+import {
+    createContextAwareGlobalSource,
+    createContextAwarePropertySource,
+    createContextAwareWindowFallbackSource
+} from './sources/context-aware-source';
 
 /**
  * 创建完整的 JavaScript 代码补全配置
@@ -51,10 +55,24 @@ export function createJavaScriptCompletions(options = {}) {
     // 2. 创建源管理器
     const sourceManager = new CompletionSourceManager();
 
-    // 3. 注册补全源（按优先级顺序）
-    // ==================== 创建补全源（带上下文感知） ====================
+    // 3. 注册补全源（按 priority 降序执行：属性访问优先于全局补全）
+    const rawObjectPropertySource = createObjectPropertyCompletionSource({
+        customObjects,
+        customSignatures,
+        environment,
+        includePrototypes,
+        windowFallbackEnabled: includeWindow
+    });
+    const objectPropertySource = createContextAwarePropertySource(rawObjectPropertySource, {
+        debug
+    });
+    sourceManager.register({
+        name: 'object-property',
+        priority: Priority.PREDEFINED_BUILTIN,
+        sourceFn: objectPropertySource,
+        requires: []
+    });
 
-    // 优先级 1: 全局变量补全
     const rawGlobalSource = createGlobalCompletionSource({
         customCompletions,
         customObjects,
@@ -67,26 +85,6 @@ export function createJavaScriptCompletions(options = {}) {
         name: 'global',
         priority: Priority.PREDEFINED_GLOBAL,
         sourceFn: globalSource,
-        requires: []
-    });
-
-    // 优先级 2: 对象属性补全
-    const rawObjectPropertySource = createObjectPropertyCompletionSource({
-        customObjects,
-        customSignatures,
-        environment,
-        includePrototypes,
-        windowFallbackEnabled: includeWindow
-    });
-
-    // 优先级 3: 对象属性补全（处理 obj.xxx，含原型链）
-    const objectPropertySource = createContextAwarePropertySource(rawObjectPropertySource, {
-        debug
-    });
-    sourceManager.register({
-        name: 'object-property',
-        priority: Priority.PREDEFINED_BUILTIN,
-        sourceFn: objectPropertySource,
         requires: []
     });
 
@@ -105,11 +103,15 @@ export function createJavaScriptCompletions(options = {}) {
     if (includeWindow && environment.hasWindow) {
         const windowScope = getWindowScope();
         if (windowScope) {
-            const windowFallbackSource = createWindowFallbackSource({
+            const rawWindowFallbackSource = createWindowFallbackSource({
                 windowScope,
                 environment,
                 knownNames: new Set(Object.keys(customObjects))
             });
+            const windowFallbackSource = createContextAwareWindowFallbackSource(
+                rawWindowFallbackSource,
+                {debug}
+            );
             sourceManager.register({
                 name: 'window-fallback',
                 priority: Priority.RUNTIME_WINDOW_PROPERTY,
@@ -178,3 +180,10 @@ export {EnvironmentType, getGlobalScope} from './core/environment';
 
 // 导出签名解析器
 export {parseFunctionSignature, getFunctionSignature, inferReturnType} from './resolvers/signature-parser';
+
+export {analyzeCompletionContext, ContextType} from './core/context-analyzer';
+export {detectLiteralPrototypeType, extractImmediateObjectExpression} from './utils/literal-prototype';
+export {parsePropertyAccess} from './utils/expression-object';
+export {getQuoteContextAt, QuoteContext, shouldBlockCompletionInLiteral} from './utils/string-context';
+export {decorateKeywordCompletion, decorateKeywordCompletions, shouldKeywordHaveTrailingSpace} from './utils/keyword-apply';
+export {keywordCompletions} from './data/globals';

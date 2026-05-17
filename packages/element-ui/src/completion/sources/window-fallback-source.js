@@ -2,6 +2,7 @@ import {getWindowScope} from '../core/environment';
 import {parseFunctionSignature} from '../resolvers/signature-parser';
 import {Priority} from '../core/priority';
 import {globalCompletionCache} from '../core/cache';
+import {shouldBlockCompletionInLiteral} from '../utils/string-context';
 
 // window 自身不应该作为补全源的一部分被添加的标识
 const SELF_REFERENCES = ['window', 'self', 'top', 'parent', 'frames', 'globalThis'];
@@ -157,6 +158,14 @@ export function createWindowFallbackSource(options = {}) {
     }
 
     return (context) => {
+        if (shouldBlockCompletionInLiteral(context.state.doc, context.pos)) {
+            return null;
+        }
+
+        const line = context.state.doc.lineAt(context.pos);
+        const linePrefix = context.state.sliceDoc(line.from, context.pos);
+        if (/\.[\w$]*$/.test(linePrefix)) return null;
+
         const before = context.matchBefore(/\w*/);
         if (!before || (before.from === before.to && !context.explicit)) return null;
 

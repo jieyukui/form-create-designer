@@ -79,3 +79,30 @@ const completionConfig = getAutocompletionConfig({
 // 在 CodeMirror 中使用
 // { extensions: [autocompletion(completionConfig)] }
 ```
+
+### 测试文件
+路径：packages/element-ui/src/completion/tests/run-completion-tests.mjs
+```bash
+cd packages/element-ui
+npm run test:completion          # 简要报告
+npm run test:completion:verbose  # 失败时打印详情
+```
+当前：32/32 通过（100%），覆盖你表格中的场景及：
+类别
+示例
+声明屏蔽
+const x、var { x }、for...in/of、catch、多行声明
+属性访问
+const/var Math.、[].、"".、localStorage.
+不误补
+const x = 无全局列表；[]. 无 getItem
+函数参数
+function foo(a, 、(a,
+### 使用说明
+
+> 报告分两部分：ContextAnalyzer（语法上下文）与 补全集成（实际提示项）
+
+> 可在 run-completion-tests.mjs 的 contextCases / completionCases 中继续加用例
+
+>调试编辑器内行为：getAutocompletionConfig({ debug: true })
+若还需要覆盖模板字符串、import、TypeScript 等场景，可在同一测试文件中按相同格式扩展用例。

@@ -1,5 +1,7 @@
-import {globalCompletions} from '../data/globals';
+import {globalCompletions, keywordCompletions} from '../data/globals';
 import {Priority} from '../core/priority';
+import {shouldBlockCompletionInLiteral} from '../utils/string-context';
+import {decorateKeywordCompletions} from '../utils/keyword-apply';
 
 /**
  * 创建全局变量补全源
@@ -27,8 +29,11 @@ export function createGlobalCompletionSource(options = {}) {
         environment
     } = options;
 
-    // 构建完整的全局补全列表
-    let allGlobals = [...globalCompletions];
+    // 构建完整的全局补全列表（含关键字）
+    let allGlobals = [
+        ...globalCompletions,
+        ...decorateKeywordCompletions(keywordCompletions)
+    ];
 
     // 添加用户自定义的全局补全（没有 path 的）
     for (const comp of customCompletions) {
@@ -87,6 +92,17 @@ export function createGlobalCompletionSource(options = {}) {
     });
 
     return (context) => {
+        if (shouldBlockCompletionInLiteral(context.state.doc, context.pos)) {
+            return null;
+        }
+
+        const docBefore = context.state.sliceDoc(Math.max(0, context.pos - 1), context.pos);
+        if (docBefore === '.') return null;
+
+        const line = context.state.doc.lineAt(context.pos);
+        const linePrefix = context.state.sliceDoc(line.from, context.pos);
+        if (/\.[\w$]*$/.test(linePrefix)) return null;
+
         const before = context.matchBefore(/\w*/);
         if (!before || (before.from === before.to && !context.explicit)) return null;
 

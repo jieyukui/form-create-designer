@@ -1,4 +1,7 @@
 import {syntaxTree} from '@codemirror/language';
+import {extractImmediateObjectExpression} from '../utils/literal-prototype';
+import {parsePropertyAccess} from '../utils/expression-object';
+import {getQuoteContextAt, QuoteContext} from '../utils/string-context';
 
 /**
  * 语法上下文类型
@@ -81,8 +84,9 @@ export class ContextAnalyzer {
         const {state, pos} = context;
         const doc = state.doc;
 
-        // 使用文档版本 + 位置作为缓存键
-        const cacheKey = `${doc.version}_${pos}`;
+        const line = doc.lineAt(pos);
+        const lineText = doc.sliceString(line.from, line.to);
+        const cacheKey = `${doc.version}_${doc.length}_${line.from}_${lineText}_${pos}`;
         const cached = this._cache.get(cacheKey);
         if (cached) {
             return cached;
@@ -110,9 +114,23 @@ export class ContextAnalyzer {
                 return result;
             }
 
-            // ==================== 2. 字符串检查 ====================
-            if (this._isInString(nodeBefore, nodeAround, pos)) {
-                // 检查是否在模板字符串的表达式内：`...${Math.}`
+            // ==================== 2. 字符串 / 模板字符串（文本扫描优先） ====================
+            const quoteContext = getQuoteContextAt(doc, pos);
+            if (quoteContext === QuoteContext.STRING) {
+                result.type = ContextType.STRING;
+                result.isValid = false;
+                this._setCache(cacheKey, result);
+                return result;
+            }
+            if (quoteContext === QuoteContext.TEMPLATE_LITERAL) {
+                result.type = ContextType.TEMPLATE_STRING;
+                result.isValid = false;
+                this._setCache(cacheKey, result);
+                return result;
+            }
+            if (quoteContext === QuoteContext.TEMPLATE_EXPRESSION) {
+                result._templateExpression = true;
+            } else if (quoteContext === QuoteContext.CODE && this._isInString(nodeBefore, nodeAround, pos)) {
                 if (this._isInTemplateExpression(nodeBefore, nodeAround, pos, doc)) {
                     result.type = ContextType.IDENTIFIER;
                     result.isValid = true;
@@ -151,10 +169,12 @@ export class ContextAnalyzer {
             }
 
             // ==================== 6. 函数参数检查 ====================
-            if (this._isInFunctionParams(nodeBefore, pos)) {
+            if (this._isInFunctionParams(nodeBefore, pos, doc)) {
                 result.type = ContextType.FUNCTION_PARAMS;
                 result.isValid = true;
                 result._isFunctionParams = true;
+                this._setCache(cacheKey, result);
+                return result;
             }
 
             // ==================== 7. 属性访问检查 ====================
@@ -237,8 +257,8 @@ export class ContextAnalyzer {
                     typeName === 'TemplateString' ||
                     typeName?.startsWith('String') ||
                     typeName?.startsWith('TemplateString')) {
-                    // 对于字符串，光标必须在内部（不在引号上）
-                    if (pos > current.from + 1 && pos < current.to - 1) {
+                    // 含未闭合字符串：光标在引号之后即可
+                    if (pos > current.from && pos <= current.to) {
                         return true;
                     }
                 }
@@ -787,7 +807,7 @@ export class ContextAnalyzer {
     /**
      * 检查是否在函数参数位置
      */
-    _isInFunctionParams(node, pos) {
+    _isInFunctionParams(node, pos, doc) {
         let current = node;
         let depth = 0;
         const maxDepth = 30;
@@ -796,16 +816,60 @@ export class ContextAnalyzer {
             const typeName = current.type?.name;
             if (typeName === 'ParamList' ||
                 typeName === 'FormalParameters' ||
+                typeName === 'FormalParameter' ||
+                typeName === 'Parameter' ||
                 typeName === 'ArgList' ||
-                typeName === 'Arguments') {
-                // 确认光标在参数列表范围内
+                typeName === 'Arguments' ||
+                typeName === 'ArrowFunction' ||
+                typeName === 'FunctionDeclaration' ||
+                typeName === 'FunctionExpression' ||
+                typeName === 'MethodDeclaration') {
                 if (pos >= current.from && pos <= current.to) {
+                    if (typeName === 'ArrowFunction' ||
+                        typeName === 'FunctionDeclaration' ||
+                        typeName === 'FunctionExpression' ||
+                        typeName === 'MethodDeclaration') {
+                        return this._isPosInFunctionParamList(pos, current, doc);
+                    }
                     return true;
                 }
             }
             current = current.parent;
             depth++;
         }
+
+        return this._heuristicFunctionParams(pos, doc);
+    }
+
+    /**
+     * 光标是否位于函数形参列表（不含函数体）
+     */
+    _isPosInFunctionParamList(pos, fnNode, doc) {
+        const text = doc.sliceString(fnNode.from, fnNode.to);
+        const offset = pos - fnNode.from;
+        const openParen = text.indexOf('(');
+        if (openParen === -1) return false;
+        const closeParen = text.indexOf(')', openParen);
+        if (closeParen === -1) return offset > openParen;
+        return offset > openParen && offset < closeParen;
+    }
+
+    /**
+     * 文本启发式：function(... / (...)=>
+     */
+    _heuristicFunctionParams(pos, doc) {
+        const before = doc.sliceString(0, pos);
+        if (/\bfor\s*\([^)]*$/i.test(before)) return false;
+        if (/\bif\s*\([^)]*$/i.test(before)) return false;
+        if (/\bwhile\s*\([^)]*$/i.test(before)) return false;
+        if (/\bswitch\s*\([^)]*$/i.test(before)) return false;
+        if (/\bcatch\s*\([^)]*$/i.test(before)) return false;
+
+        if (/\bfunction\b[^(]*\([^)]*$/i.test(before)) return true;
+
+        const after = doc.sliceString(pos, Math.min(doc.length, pos + 80));
+        if (/\([^)]*$/.test(before) && /\)\s*=>/.test(after)) return true;
+
         return false;
     }
 
@@ -817,6 +881,16 @@ export class ContextAnalyzer {
      * @returns {{ objectName: string, partialProp: string, type: string } | null}
      */
     _detectPropertyAccess(node, pos, doc) {
+        const line = doc.lineAt(pos);
+        const linePrefix = doc.sliceString(line.from, pos);
+        const docPrefix = doc.sliceString(Math.max(0, pos - 500), pos);
+
+        // 方法0：行文本解析（字面量 []、"" 等比语法树更可靠）
+        const lineDotAccess = parsePropertyAccess(linePrefix);
+        if (lineDotAccess && !this._isDeclarationPropertyAccess(linePrefix, doc, line)) {
+            return {...lineDotAccess, type: 'dot-line'};
+        }
+
         // 方法1：使用语法树查找 MemberExpression 节点
         let current = node;
         let depth = 0;
@@ -827,30 +901,19 @@ export class ContextAnalyzer {
 
             if (typeName === 'MemberExpression') {
                 const text = doc.sliceString(current.from, pos);
-
-                // 匹配 .xxx 模式
-                const dotMatch = text.match(/\.([\w$]*)$/);
-                if (dotMatch) {
-                    const beforeDot = text.substring(0, text.lastIndexOf('.'));
-                    const objectName = beforeDot.trim();
-
-                    return {
-                        objectName: objectName,
-                        partialProp: dotMatch[1],
-                        type: 'dot'
-                    };
+                const dotAccess = parsePropertyAccess(text);
+                if (dotAccess) {
+                    return dotAccess;
                 }
 
-                // 匹配 [xxx 模式
                 const bracketMatch = text.match(/\[([\w$'"]*)$/);
                 if (bracketMatch) {
                     const beforeBracket = text.substring(0, text.lastIndexOf('['));
-                    const objectName = beforeBracket.trim();
-                    const partialProp = bracketMatch[1].replace(/['"]/g, '');
+                    const objectName = extractImmediateObjectExpression(beforeBracket);
 
                     return {
-                        objectName: objectName,
-                        partialProp: partialProp,
+                        objectName,
+                        partialProp: bracketMatch[1].replace(/['"]/g, ''),
                         type: 'bracket'
                     };
                 }
@@ -862,40 +925,48 @@ export class ContextAnalyzer {
             depth++;
         }
 
-        // 方法2：语法树解析失败时的回退
-        const line = doc.lineAt(pos);
-        const text = doc.sliceString(Math.max(0, line.from), pos);
-
-        // 更精确的点语法匹配
-        // 匹配：identifier.identifier 或 expression.identifier
-        const dotMatch = text.match(
-            /([\w$\])'"`]+(?:\.[\w$]+)*)\.([\w$]*)$/
-        );
-        if (dotMatch) {
-            // 验证这不是声明语句中的变量名
-            const beforeMatch = doc.sliceString(0, line.from);
-            if (!/^\s*(const|let|var)\s+[\w$,\s]*$/.test(beforeMatch + line.text.substring(0, line.text.indexOf('.')))) {
-                return {
-                    objectName: dotMatch[1],
-                    partialProp: dotMatch[2],
-                    type: 'dot-fallback'
-                };
+        // 方法2：语法树未就绪时的文本回退
+        const dotAccess = parsePropertyAccess(linePrefix);
+        if (dotAccess) {
+            if (!this._isDeclarationPropertyAccess(linePrefix, doc, line)) {
+                return {...dotAccess, type: 'dot-fallback'};
             }
         }
 
-        // 匹配方括号访问：obj[...]
-        const bracketMatch = text.match(
-            /([\w$\])'"`]+)\[([\w$'"]*)$/
-        );
+        const bracketMatch = linePrefix.match(/([\w$\])'"`]+)\[([\w$'"]*)$/);
         if (bracketMatch) {
             return {
-                objectName: bracketMatch[1],
+                objectName: extractImmediateObjectExpression(bracketMatch[1]),
                 partialProp: bracketMatch[2].replace(/['"]/g, ''),
                 type: 'bracket-fallback'
             };
         }
 
+        const docDotAccess = parsePropertyAccess(docPrefix);
+        if (docDotAccess && !this._isDeclarationPropertyAccess(linePrefix, doc, line)) {
+            return {...docDotAccess, type: 'dot-fallback-doc'};
+        }
+
         return null;
+    }
+
+    /**
+     * 排除「声明变量名位置」上的点号误判（如 var x. 尚未完成赋值）
+     */
+    _isDeclarationPropertyAccess(linePrefix, doc, line) {
+        if (!/\.\w*$/.test(linePrefix)) return false;
+
+        const col = linePrefix.length;
+        const lineText = line.text;
+
+        if (this._isSimpleDeclaration(lineText, col, doc, line)) {
+            const eqIndex = lineText.indexOf('=');
+            if (eqIndex === -1 || col < eqIndex) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ==================== 对象属性名检测 ====================
@@ -1110,12 +1181,10 @@ export function getContextAnalyzer() {
 }
 
 /**
- * 快速分析：直接分析给定的 CompletionContext
- *
+ * 快速分析 CompletionContext（测试与调试）
  * @param {Object} context - CodeMirror CompletionContext
  * @returns {CompletionContext}
  */
 export function analyzeCompletionContext(context) {
-    const analyzer = getContextAnalyzer();
-    return analyzer.analyze(context);
+    return getContextAnalyzer().analyze(context);
 }

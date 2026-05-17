@@ -41,16 +41,15 @@
 import 'codemirror/lib/codemirror.css';
 import 'codemirror/addon/hint/show-hint.css';
 // CM6 核心导入 - 不使用 basicSetup，手动组合
-import {EditorView, keymap, lineNumbers, highlightActiveLineGutter} from '@codemirror/view';
-import {EditorState} from '@codemirror/state';
+import {EditorView, keymap, lineNumbers} from '@codemirror/view';
 import {javascript} from '@codemirror/lang-javascript';
 import {autocompletion} from '@codemirror/autocomplete';
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {defaultHighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching} from '@codemirror/language';
 import {defineComponent, markRaw} from 'vue';
-import {addAutoKeyMap, toJSON} from '../utils/index';
+import {toJSON} from '../utils/index';
 import errorMessage from '../utils/message';
-import {getAutocompletionConfig} from '../helper/index'
+import {getAutocompletionConfig} from '../completion/index'
 
 const PREFIX = '[[FORM-CREATE-PREFIX-';
 const SUFFIX = '-FORM-CREATE-SUFFIX]]';
@@ -186,6 +185,32 @@ export default defineComponent({
         load() {
             this.$nextTick(() => {
                 let value = this.tidyValue();
+                const completionConfig = getAutocompletionConfig({
+                    customCompletions: [
+                        {
+                            label: 'myApp',
+                            type: 'class',
+                            detail: 'Application',
+                            info: '自定义应用对象'
+                        }
+                    ],
+                    customObjects: {
+                        api: {
+                            request: (url, options) => {
+                                return new Promise((resolve, reject) => {
+                                    resolve(1)
+                                })
+                            }
+                        }  // 运行时对象
+                    },
+                    customSignatures: {
+                        'api.request': {
+                            type: 'function',
+                            detail: '(url: string, options?: RequestOptions) => Promise<Response>',
+                            info: '发送 API 请求'
+                        }
+                    }
+                });
 
                 const extensions = [
                     lineNumbers(),
@@ -220,7 +245,8 @@ export default defineComponent({
                         jsx: false,
                         typescript: false
                     }),
-                    autocompletion(getAutocompletionConfig(this.codeEditorConfig)),
+                    autocompletion(completionConfig),
+                    // autocompletion(getAutocompletionConfig(this.codeEditorConfig)),
                     EditorView.updateListener.of((update) => {
                         if (update.docChanged) {
                             this.visible = true;

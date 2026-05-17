@@ -1,0 +1,15 @@
+export const regexpPrototypeCompletions = [
+    {label: 'exec', type: 'function', detail: '(string: string) => RegExpExecArray | null', info: '执行正则匹配'},
+    {label: 'test', type: 'function', detail: '(string: string) => boolean', info: '测试是否匹配'},
+    {label: 'toString', type: 'function', detail: '() => string', info: '转为字符串'},
+    {label: 'source', type: 'property', detail: 'string', info: '正则表达式源码'},
+    {label: 'flags', type: 'property', detail: 'string', info: '正则标志'},
+    {label: 'global', type: 'property', detail: 'boolean', info: '是否有 g 标志'},
+    {label: 'ignoreCase', type: 'property', detail: 'boolean', info: '是否有 i 标志'},
+    {label: 'multiline', type: 'property', detail: 'boolean', info: '是否有 m 标志'},
+    {label: 'dotAll', type: 'property', detail: 'boolean', info: '是否有 s 标志'},
+    {label: 'unicode', type: 'property', detail: 'boolean', info: '是否有 u 标志'},
+    {label: 'sticky', type: 'property', detail: 'boolean', info: '是否有 y 标志'},
+    {label: 'lastIndex', type: 'property', detail: 'number', info: '下次匹配起始位置'},
+    {label: 'hasIndices', type: 'property', detail: 'boolean', info: '是否有 d 标志'},
+];

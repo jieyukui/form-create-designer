@@ -8,6 +8,13 @@ import {detectLiteralPrototypeType} from '../utils/literal-prototype';
 import {parsePropertyAccess} from '../utils/expression-object';
 import {shouldBlockCompletionInLiteral} from '../utils/string-context';
 import {resolveCustomObjectCompletions} from '../utils/custom-object-completions';
+import {
+    mergePredefinedWithRuntime,
+    resolvePropertyAccessTarget,
+    resolveRuntimeObjectProperties,
+    resolveRuntimeOnlyCompletions
+} from '../utils/property-access-resolve';
+import {windowChildCompletions} from '../data/builtin/window-children';
 
 /**
  * 创建对象属性补全源
@@ -45,30 +52,6 @@ export function createObjectPropertyCompletionSource(options = {}) {
         ...topLevel
     };
 
-    /**
-     * 解析对象名：处理 window.xxx 自动映射
-     *
-     * 如果用户写了 window.Math.xxx，直接映射到 Math 的补全数据
-     * 如果用户写了 window.customObj.xxx，映射到用户自定义对象
-     */
-    function resolveObjectName(objectName) {
-        // window.xxx 映射：去掉 window 前缀
-        // 同时也处理 self、globalThis、top、parent、frames
-        const windowAliases = ['window', 'self', 'globalThis', 'top', 'parent', 'frames'];
-        if (windowAliases.includes(objectName)) {
-            return {
-                originalName: objectName,
-                targetName: '__WINDOW_OBJECT__', // 特殊标记
-                isWindowAccess: true
-            };
-        }
-        return {
-            originalName: objectName,
-            targetName: objectName,
-            isWindowAccess: false
-        };
-    }
-
     return (context) => {
         const cursor = context.pos;
 
@@ -94,8 +77,13 @@ export function createObjectPropertyCompletionSource(options = {}) {
             return null;
         }
 
-        const {targetName, isWindowAccess} = resolveObjectName(objectName);
+        const {
+            targetName,
+            isWindowRoot: isWindowAccess,
+            accessPath
+        } = resolvePropertyAccessTarget(objectName);
 
+        const displayPath = accessPath || targetName;
         let completions = [];
         let sourcePriority = Priority.PREDEFINED_BUILTIN;
 
@@ -140,7 +128,8 @@ export function createObjectPropertyCompletionSource(options = {}) {
                 customObjects,
                 customSignatures,
                 topLevel,
-                windowFallbackEnabled
+                windowFallbackEnabled,
+                partialProp
             );
             sourcePriority = Priority.PREDEFINED_BUILTIN;
         }
@@ -183,14 +172,40 @@ export function createObjectPropertyCompletionSource(options = {}) {
             }
         }
 
-        // ==================== 6. 过滤 ====================
+        // ==================== 6. 预定义 + 运行时合并（含原型链，navigator / navigation 等） ====================
+        if (
+            windowFallbackEnabled
+            && targetName
+            && targetName !== '__WINDOW_OBJECT__'
+            && !customObjects[targetName]
+        ) {
+            const hadPredefined = completions.length > 0;
+            completions = mergePredefinedWithRuntime(completions, targetName, partialProp, {
+                enabled: true,
+                displayPath
+            });
+
+            if (completions.length === 0) {
+                completions = resolveRuntimeOnlyCompletions(targetName, partialProp, displayPath).map(c => ({
+                    ...c,
+                    boost: c.boost || 30,
+                    source: 'object-runtime-only'
+                }));
+            }
+
+            if (!hadPredefined && completions.length > 0) {
+                sourcePriority = Priority.RUNTIME_WINDOW_PROPERTY;
+            }
+        }
+
+        // ==================== 7. 过滤 ====================
         if (partialProp) {
             completions = completions.filter(c =>
                 c.label.toLowerCase().startsWith(partialProp.toLowerCase())
             );
         }
 
-        // ==================== 7. 兜底：如果是 window 访问且结果为空，使用运行时解析 ====================
+        // ==================== 8. 兜底：如果是 window 根访问且结果为空，使用运行时解析 ====================
         if (completions.length === 0 && isWindowAccess && windowFallbackEnabled) {
             const runtimeCompletions = resolveWindowRuntimeProperties(
                 partialProp,
@@ -265,56 +280,67 @@ function buildCustomObjectCompletions(objectName, obj, customSignatures) {
 /**
  * 构建 window 对象的补全（融合内置 + 自定义）
  */
-function buildWindowCompletions(builtinCompletions, customObjects, customSignatures, topLevel, includeRuntime) {
+function buildWindowCompletions(
+    builtinCompletions,
+    customObjects,
+    customSignatures,
+    topLevel,
+    includeRuntime,
+    partialProp = ''
+) {
     const allCompletions = [];
     const seen = new Set();
 
-    // 添加内置对象补全（作为 window 的属性）
-    for (const [name, completions] of Object.entries(builtinCompletions)) {
-        if (seen.has(name)) continue;
-        seen.add(name);
+    const pushEntry = (entry, boost, source) => {
+        if (seen.has(entry.label)) return;
+        seen.add(entry.label);
+        allCompletions.push({...entry, boost, source});
+    };
 
-        allCompletions.push({
+    for (const name of Object.keys(builtinCompletions)) {
+        pushEntry({
             label: name,
             type: 'class',
             detail: 'object',
-            info: `${name} 内置对象`,
-            boost: 80,
-            source: 'window-builtin'
-        });
+            info: `${name} 内置对象`
+        }, 80, 'window-builtin');
     }
 
     for (const prop of windowGlobalProps) {
-        if (seen.has(prop.label)) continue;
-        seen.add(prop.label);
-        allCompletions.push({...prop, boost: 75, source: 'window-global'});
+        pushEntry(prop, 75, 'window-global');
+    }
+
+    for (const prop of windowChildCompletions) {
+        pushEntry(prop, 78, 'window-child');
     }
 
     for (const name of Object.keys(topLevel || {})) {
-        if (seen.has(name)) continue;
-        seen.add(name);
-        allCompletions.push({
+        pushEntry({
             label: name,
             type: 'class',
             detail: 'object',
-            info: `用户自定义对象: ${name}`,
-            boost: 98,
-            source: 'window-custom-object'
-        });
+            info: `用户自定义对象: ${name}`
+        }, 98, 'window-custom-object');
     }
 
-    // 添加自定义运行时对象
     for (const name of Object.keys(customObjects)) {
-        if (seen.has(name)) continue;
-        seen.add(name);
-        allCompletions.push({
+        pushEntry({
             label: name,
             type: 'class',
             detail: 'object',
-            info: `用户自定义对象: ${name}`,
-            boost: 100,
-            source: 'window-custom'
-        });
+            info: `用户自定义对象: ${name}`
+        }, 100, 'window-custom');
+    }
+
+    if (includeRuntime) {
+        const win = getWindowScope();
+        if (win) {
+            const runtimeItems = resolveRuntimeObjectProperties(win, partialProp, {pathLabel: 'window'});
+            for (const item of runtimeItems) {
+                if (seen.has(item.label)) continue;
+                pushEntry(item, item.boost || 25, item.source || 'window-runtime');
+            }
+        }
     }
 
     return allCompletions;

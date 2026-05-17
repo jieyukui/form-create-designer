@@ -197,6 +197,15 @@ export {parseFunctionSignature, getFunctionSignature, inferReturnType} from './r
 export {analyzeCompletionContext, ContextType} from './core/context-analyzer';
 export {detectLiteralPrototypeType, extractImmediateObjectExpression} from './utils/literal-prototype';
 export {parsePropertyAccess} from './utils/expression-object';
+export {
+    resolvePropertyAccessTarget,
+    mergePredefinedWithRuntime,
+    resolveRuntimeOnlyCompletions,
+    resolveRuntimeObjectProperties,
+    getRuntimeRootForPath,
+    collectRuntimePropertyNames,
+    WINDOW_ROOT_NAMES
+} from './utils/property-access-resolve';
 export {getQuoteContextAt, QuoteContext, shouldBlockCompletionInLiteral} from './utils/string-context';
 export {decorateKeywordCompletion, decorateKeywordCompletions, shouldKeywordHaveTrailingSpace} from './utils/keyword-apply';
 export {

@@ -20,6 +20,7 @@ import {navigatorCompletions} from './navigator';
 import {screenCompletions} from './screen';
 import {cryptoCompletions} from './crypto';
 import {performanceCompletions} from './performance';
+import {navigationCompletions} from './navigation';
 
 /**
  * 内置对象补全数据
@@ -147,6 +148,10 @@ export const builtinDataRegistry = {
     performance: {
         completions: performanceCompletions,
         requires: ['hasPerformance'],
+    },
+    navigation: {
+        completions: navigationCompletions,
+        requires: ['hasWindow'],
     },
 };
 

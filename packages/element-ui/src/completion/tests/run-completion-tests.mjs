@@ -11,7 +11,13 @@ import {EditorState} from '@codemirror/state';
 import {javascript} from '@codemirror/lang-javascript';
 import {CompletionContext} from '@codemirror/autocomplete';
 import {ContextType, analyzeCompletionContext} from '../core/context-analyzer.js';
-import {createJavaScriptCompletions, normalizeCustomObjectCompletions} from '../index.js';
+import {
+    createJavaScriptCompletions,
+    normalizeCustomObjectCompletions,
+    resolvePropertyAccessTarget,
+    collectRuntimePropertyNames,
+    resolveRuntimeObjectProperties
+} from '../index.js';
 import {detectLiteralPrototypeType} from '../utils/literal-prototype.js';
 import {parsePropertyAccess} from '../utils/expression-object.js';
 import {getQuoteContextAt, QuoteContext, shouldBlockCompletionInLiteral} from '../utils/string-context.js';
@@ -418,6 +424,54 @@ const completionCases = [
         ]
     },
     {
+        group: 'window 前缀与运行时属性合并',
+        completionOptions: {
+            includeWindow: true,
+            environment: {
+                ...testEnvironment,
+                hasWindow: true,
+                hasNavigator: true,
+                hasDocument: typeof document !== 'undefined'
+            }
+        },
+        cases: [
+            {
+                name: 'window.navigator 映射为 navigator',
+                code: 'window.navigator.',
+                require: ['userAgent', 'platform']
+            },
+            {
+                name: 'navigator 与 window.navigator 一致',
+                code: 'navigator.',
+                require: ['userAgent', 'platform']
+            },
+            {
+                name: 'navigator 含未录入的运行时属性',
+                code: 'navigator.',
+                require: ['userAgent'],
+                checkRuntimeProp: 'geolocation'
+            },
+            {
+                name: 'window.Math 映射为 Math',
+                code: 'window.Math.',
+                require: ['abs', 'max'],
+                forbid: ['getItem']
+            },
+            {
+                name: 'navigation 原型链方法 back',
+                code: 'navigation.',
+                require: ['back', 'forward'],
+                mockGlobalNavigation: true
+            },
+            {
+                name: 'window.navigation 等价 navigation',
+                code: 'window.navigation.',
+                require: ['back', 'reload'],
+                mockGlobalNavigation: true
+            }
+        ]
+    },
+    {
         group: 'customObjectCompletions 树形',
         completionOptions: {customObjectCompletions: sampleCustomObjectTree},
         cases: [
@@ -500,6 +554,45 @@ function runContextCase(testCase) {
     return {ok, got: {type: got.type, isValid: got.isValid, objectName: got.objectName}, expect: exp, details};
 }
 
+function runRuntimePropertyScanTests() {
+    const navigation = Object.create({
+        back: function back() {},
+        forward: function forward() {},
+        reload: function reload() {}
+    });
+    navigation.canGoBack = true;
+
+    const names = collectRuntimePropertyNames(navigation);
+    const items = resolveRuntimeObjectProperties(navigation, '', {pathLabel: 'navigation'});
+    const labels = items.map(i => i.label);
+
+    let ok = names.has('back') && names.has('forward') && names.has('canGoBack');
+    ok = ok && labels.includes('back') && labels.includes('forward');
+    if (!ok) {
+        console.error('  runtime scan:', {names: [...names], labels});
+    }
+    return ok;
+}
+
+function runPropertyAccessResolveTests() {
+    const cases = [
+        {input: 'window.navigator', target: 'navigator', windowRoot: false, qualified: true},
+        {input: 'navigator', target: 'navigator', windowRoot: false, qualified: false},
+        {input: 'window', target: '__WINDOW_OBJECT__', windowRoot: true, qualified: false},
+        {input: 'window.Math', target: 'Math', windowRoot: false, qualified: true},
+        {input: 'self.document', target: 'document', windowRoot: false, qualified: true},
+    ];
+    let ok = true;
+    for (const c of cases) {
+        const got = resolvePropertyAccessTarget(c.input);
+        if (got.targetName !== c.target || got.isWindowRoot !== c.windowRoot || got.isWindowQualified !== c.qualified) {
+            ok = false;
+            console.error(`  resolve ${c.input}:`, got, 'expected', c);
+        }
+    }
+    return ok;
+}
+
 function runNormalizeObjectCompletionsTests() {
     const {topLevel, nestedPaths} = normalizeCustomObjectCompletions(sampleCustomObjectTree);
     const apiItem = topLevel.myApp?.find(c => c.label === 'api');
@@ -522,6 +615,21 @@ function runNormalizeObjectCompletionsTests() {
 }
 
 async function runCompletionCase(testCase, groupOptions = {}) {
+    let restoredNavigation;
+    if (testCase.mockGlobalNavigation && typeof globalThis !== 'undefined') {
+        restoredNavigation = globalThis.navigation;
+        const nav = Object.create({
+            back: function back() {},
+            forward: function forward() {},
+            reload: function reload() {}
+        });
+        nav.canGoBack = true;
+        globalThis.navigation = nav;
+        if (typeof window !== 'undefined') {
+            window.navigation = nav;
+        }
+    }
+
     const pos = testCase.pos ?? testCase.code.length;
     const result = await completeAt(
         testCase.code,
@@ -566,6 +674,15 @@ async function runCompletionCase(testCase, groupOptions = {}) {
         }
     }
 
+    if (testCase.checkRuntimeProp) {
+        if (typeof navigator !== 'undefined') {
+            if (!labels(result).includes(testCase.checkRuntimeProp)) {
+                ok = false;
+                details.push(`运行时属性缺失: ${testCase.checkRuntimeProp}`);
+            }
+        }
+    }
+
     if (testCase.checkOption) {
         const item = findOption(result, testCase.checkOption.label);
         if (!item) {
@@ -580,6 +697,17 @@ async function runCompletionCase(testCase, groupOptions = {}) {
                 ok = false;
                 details.push(`info: "${item.info}" !== "${testCase.checkOption.info}"`);
             }
+        }
+    }
+
+    if (testCase.mockGlobalNavigation && typeof globalThis !== 'undefined') {
+        if (restoredNavigation === undefined) {
+            delete globalThis.navigation;
+        } else {
+            globalThis.navigation = restoredNavigation;
+        }
+        if (typeof window !== 'undefined') {
+            window.navigation = restoredNavigation;
         }
     }
 
@@ -616,13 +744,24 @@ async function main() {
         }
     }
 
-    console.log('\n## 二、customObjectCompletions 规范化\n');
+    console.log('\n## 二、property-access 解析\n');
+    total++;
+    const resolveOk = runPropertyAccessResolveTests();
+    if (resolveOk) passed++;
+    console.log(`| resolvePropertyAccessTarget | window 前缀 | ${padStatus(resolveOk)} | navigator / Math |`);
+
+    total++;
+    const scanOk = runRuntimePropertyScanTests();
+    if (scanOk) passed++;
+    console.log(`| collectRuntimePropertyNames | 原型链扫描 | ${padStatus(scanOk)} | navigation.back |\n`);
+
+    console.log('## 三、customObjectCompletions 规范化\n');
     total++;
     const normOk = runNormalizeObjectCompletionsTests();
     if (normOk) passed++;
     console.log(`| normalizeCustomObjectCompletions | 树形展开 | ${padStatus(normOk)} | topLevel + nestedPaths |\n`);
 
-    console.log('## 三、补全源集成（createJavaScriptCompletions）\n');
+    console.log('## 四、补全源集成（createJavaScriptCompletions）\n');
     console.log('| 分组 | 场景 | 状态 | 说明 |');
     console.log('|------|------|:---:|------|');
 

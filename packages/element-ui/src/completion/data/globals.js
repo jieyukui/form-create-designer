@@ -77,6 +77,7 @@ export const globalCompletions = [
     {label: 'location', type: 'class', detail: 'Location', info: '位置对象', requires: ['hasWindow']},
     {label: 'history', type: 'class', detail: 'History', info: '历史记录对象', requires: ['hasWindow']},
     {label: 'navigator', type: 'class', detail: 'Navigator', info: '浏览器信息对象', requires: ['hasNavigator']},
+    {label: 'navigation', type: 'class', detail: 'Navigation', info: 'Navigation API', requires: ['hasWindow']},
     {label: 'screen', type: 'class', detail: 'Screen', info: '屏幕信息对象', requires: ['hasWindow']},
     {label: 'window', type: 'class', detail: 'Window', info: '浏览器窗口对象', requires: ['hasWindow']},
     {label: 'self', type: 'class', detail: 'Window', info: '当前窗口的引用', requires: ['hasWindow']},

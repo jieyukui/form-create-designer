@@ -24,7 +24,7 @@ const WELL_KNOWN = new Set([
     'MessageChannel', 'MessagePort', 'MessageEvent',
     'BroadcastChannel', 'Worker', 'SharedWorker',
     'localStorage', 'sessionStorage', 'document', 'location', 'history',
-    'navigator', 'screen', 'crypto', 'performance',
+    'navigator', 'navigation', 'screen', 'crypto', 'performance',
     'Notification', 'Clipboard', 'PaymentRequest',
     'Cache', 'CacheStorage',
     ...SELF_REFERENCES

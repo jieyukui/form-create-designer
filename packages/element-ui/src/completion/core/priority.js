@@ -2,11 +2,11 @@
  * 补全优先级常量
  */
 export const Priority = {
-    // 用户自定义（最高优先级）
-    USER_CUSTOM_OBJECT: 1000,
+    // 用户自定义（customSignatures > customObjectCompletions > customObjects）
+    USER_CUSTOM_SIGNATURE: 1000,
     USER_CUSTOM_GLOBAL: 999,
-    USER_CUSTOM_SIGNATURE: 998,
-    USER_CUSTOM_OBJECT_COMPLETIONS: 995,
+    USER_CUSTOM_OBJECT_COMPLETIONS: 990,
+    USER_CUSTOM_OBJECT: 980,
 
     // 预定义内置（中优先级）
     PREDEFINED_BUILTIN: 500,

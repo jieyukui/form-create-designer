@@ -239,7 +239,7 @@ export interface Config {
     };
 }
 
-export interface BaseCompletion {
+export interface SignatureCompletion {
     /**
      * 描述
      */
@@ -250,12 +250,7 @@ export interface BaseCompletion {
     info: string;
 }
 
-// 代码补全-完成
-export interface Completion {
-    /**
-     * 标签
-     */
-    label: string;
+export interface BaseCompletion {
     /**
      * 类型
      */
@@ -273,32 +268,102 @@ export interface Completion {
      */
     path?: string;
     /**
-     * 代码补全排序
+     * 代码补全排序，按 boost 降序，相同 boost 按字母升序
      */
     boost?: number;
 }
 
+// 代码补全-完成
+export interface Completion extends BaseCompletion {
+    /**
+     * 标签
+     */
+    label: string;
+}
+
+// 代码补全-完成
+export interface CompletionNodeMeta extends BaseCompletion {
+    /**
+     * 自定义对象是 window 的成员，默认值：false
+     */
+    onWindow?: boolean;
+}
+
 /** customObjectCompletions 命名空间节点 */
 export interface CustomObjectCompletionNode {
-    meta?: Partial<Completion> & { label?: string };
-    members?: Record<string, CustomObjectCompletionNode | Completion>;
-    children?: Record<string, CustomObjectCompletionNode | Completion>;
+    /**
+     * 元数据
+     */
+    meta?: CompletionNodeMeta;
+    /**
+     * 成员
+     */
+    members?: Record<string, CustomObjectCompletionNode>;
 }
 
 // 设计器 FnEditor 的 codeEditorConfig（通过 FcDesigner 的 codeEditorConfig 传入）
 export interface CodeEditorConfig {
-    // 自定义全局补全（输入时直接弹出的顶层补全）
+    /**
+     * 自定义全局补全（输入时直接弹出的顶层补全）（优先级：最高）
+     * @example
+     * customCompletions: [{ label: 'myApp.version', type: 'property', detail: 'string', info: '自定义应用版本-顶层' }]
+     */
     customCompletions?: Completion[],
     /**
-     * 自定义对象树。命名空间：{ meta: { type, detail, info }, members: { ... } }；
-     * 叶子可简写 { type, detail, info }，或与 meta 字段同名的属性用 { meta: { ... } }。
-     * 根对象 meta 会注册为全局补全。
+     * 自定义对象树。（优先级：中）
+     * @example
+     * customObjectCompletions: {
+     *   myApp: {
+     *     meta: { type: 'class', detail: 'Application', info: '自定义应用', onWindow: false },
+     *     members: {
+     *       version: { type: 'property', detail: 'string', info: '版本' },
+     *       api: {
+     *         meta: { type: 'class', detail: 'API', info: 'API 模块' },
+     *         members: {
+     *           type: { meta: { type: 'property', detail: 'string', info: '用户类型字段' } },
+     *           get: { type: 'function', detail: '(id) => User', info: '获取用户' }
+     *         }
+     *       }
+     *     }
+     *   }
+     * }
      */
-    customObjectCompletions?: Record<string, CustomObjectCompletionNode | Completion[]>;
-    // 自定义对象（动态扫描属性）
-    customObjects?: Record<string, any>;
-    // 自定义签名覆盖
-    customSignatures?: Record<string, BaseCompletion>;
+    customObjectCompletions?: Record<string, CustomObjectCompletionNode>;
+    /**
+     * 自定义对象（动态扫描属性）（优先级：低）
+     * @example
+     * customObjects: {
+     *   myApp: {
+     *     members: {
+     *       version: 'v1.0.0',
+     *       api: {
+     *         type: 'admin',
+     *         get: (id) => {name: 'Super admin'}
+     *       }
+     *     }
+     *   }
+     * }
+     */
+    customObjects?: Record<string, unknown>;
+    /**
+     * 自定义签名覆盖（优先级：高）
+     * @example
+     * customSignatures: {
+     *   'myApp': {
+     *     detail: 'Application',
+     *     info: '自定义应用-覆盖'
+     *   },
+     *   'myApp.version': {
+     *     detail: 'string',
+     *     info: '版本-覆盖'
+     *   },
+     *   'myApp.api.type': {
+     *     detail: 'string',
+     *     info: '用户类型字段-覆盖'
+     *   }
+     * }
+     */
+    customSignatures?: Record<string, SignatureCompletion>;
 }
 
 //拖拽组件描述规则

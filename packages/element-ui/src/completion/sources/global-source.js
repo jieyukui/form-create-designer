@@ -65,7 +65,7 @@ export function createGlobalCompletionSource(options = {}) {
                 detail: 'object',
                 info: `用户自定义对象: ${name}`,
                 priority: Priority.USER_CUSTOM_OBJECT,
-                boost: 95
+                boost: 85
             });
         }
     }

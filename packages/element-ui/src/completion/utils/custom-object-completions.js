@@ -14,7 +14,7 @@ const STRUCTURE_KEYS = new Set(['meta', 'members', 'children']);
  * @example
  * customObjectCompletions: {
  *   myApp: {
- *     meta: { type: 'class', detail: 'Application', info: '自定义应用' },
+ *     meta: { type: 'class', detail: 'Application', info: '自定义应用', onWindow: false },
  *     members: {
  *       version: { type: 'property', detail: 'string', info: '版本' },
  *       api: {
@@ -32,6 +32,7 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
     const topLevel = {};
     const nestedPaths = {};
     const rootGlobals = new Map();
+    const windowMembers = new Set();
 
     function targetMap(path) {
         return path.includes('.') ? nestedPaths : topLevel;
@@ -62,6 +63,20 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
         return meta;
     }
 
+    /** 根节点 meta.onWindow === true 时，才加入 window. 子成员补全 */
+    function readOnWindow(node) {
+        if (!node || typeof node !== 'object') return false;
+        const source = node.meta && typeof node.meta === 'object' ? node.meta : node;
+        return source.onWindow === true;
+    }
+
+    function registerRootGlobal(rootKey, meta, rootNode) {
+        rootGlobals.set(rootKey, toGlobalEntry(rootKey, meta));
+        if (readOnWindow(rootNode)) {
+            windowMembers.add(rootKey);
+        }
+    }
+
     function getMembers(node) {
         if (!node || typeof node !== 'object') return null;
         const bag = node.members ?? node.children;
@@ -73,7 +88,6 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
 
     function toPropertyItem(meta, key) {
         return normalizeCompletionItem({
-            label: key,
             type: 'variable',
             detail: '',
             info: '',
@@ -88,8 +102,8 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
             type: meta.type || 'class',
             detail: meta.detail || 'object',
             info: meta.info || `自定义对象: ${rootKey}`,
-            priority: Priority.USER_CUSTOM_OBJECT,
-            boost: 100
+            priority: Priority.USER_CUSTOM_OBJECT_COMPLETIONS,
+            boost: 95
         };
     }
 
@@ -201,19 +215,19 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
         if (!parsed) return;
 
         if (parsed.kind === 'namespace') {
-            rootGlobals.set(rootKey, toGlobalEntry(rootKey, parsed.meta));
+            registerRootGlobal(rootKey, parsed.meta, rootValue);
             processNamespace(rootKey, parsed);
             return;
         }
 
         if (parsed.kind === 'leaf') {
-            rootGlobals.set(rootKey, toGlobalEntry(rootKey, parsed.meta));
-            addCompletions(rootKey, [toPropertyItem(parsed.meta, rootKey)]);
+            // 仅 meta、无 members：只注册全局补全，不把根对象名写入其子属性列表
+            registerRootGlobal(rootKey, parsed.meta, rootValue);
             return;
         }
 
         if (parsed.kind === 'array') {
-            rootGlobals.set(rootKey, toGlobalEntry(rootKey, {}));
+            registerRootGlobal(rootKey, {}, rootValue);
             processArrayAtPath(rootKey, parsed.items);
         }
     }
@@ -226,7 +240,9 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
         processRoot(key, value);
     }
 
+    /** 嵌套路径签名：obj.prop 或 a.b.c */
     for (const [sigPath, sig] of Object.entries(customSignatures || {})) {
+        if (!sigPath.includes('.')) continue;
         const dot = sigPath.lastIndexOf('.');
         if (dot <= 0) continue;
         const objPath = sigPath.slice(0, dot);
@@ -236,7 +252,7 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
         const idx = existing.findIndex(c => c.label === label);
         const item = normalizeCompletionItem({label, ...sig}, {priority: Priority.USER_CUSTOM_SIGNATURE});
         if (idx >= 0) {
-            existing[idx] = {...existing[idx], ...item};
+            existing[idx] = mergeCompletionItems([existing[idx], item])[0];
         } else {
             existing.push(item);
         }
@@ -256,7 +272,25 @@ export function normalizeCustomObjectCompletions(customObjectCompletions = {}, c
         globalEntries.push(toGlobalEntry(name, {}));
     }
 
-    return {topLevel, nestedPaths, globalEntries};
+    /** 根级签名（无点号，如 tableTool）：覆盖 customObjectCompletions 的 meta */
+    for (const [sigPath, sig] of Object.entries(customSignatures || {})) {
+        if (sigPath.includes('.')) continue;
+        const patch = normalizeCompletionItem(
+            {label: sigPath, ...sig, boost: 100},
+            {priority: Priority.USER_CUSTOM_SIGNATURE}
+        );
+        const idx = globalEntries.findIndex(e => e.label === sigPath);
+        if (idx >= 0) {
+            globalEntries[idx] = mergeCompletionItems([globalEntries[idx], patch])[0];
+        } else {
+            globalEntries.push(patch);
+        }
+        if (rootGlobals.has(sigPath)) {
+            rootGlobals.set(sigPath, mergeCompletionItems([rootGlobals.get(sigPath), patch])[0]);
+        }
+    }
+
+    return {topLevel, nestedPaths, globalEntries, windowMembers};
 }
 
 export function resolveCustomObjectCompletions(objectName, {topLevel = {}, nestedPaths = {}} = {}) {

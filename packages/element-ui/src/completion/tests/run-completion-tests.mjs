@@ -513,6 +513,82 @@ const completionCases = [
             },
         ]
     },
+    {
+        group: 'customObjectCompletions 仅 meta 根节点',
+        completionOptions: {
+            customObjectCompletions: {
+                tableTool: {
+                    meta: {type: 'class', detail: 'tableTool', info: '获取表格数据方法合集'}
+                }
+            },
+            customObjects: {
+                tableTool: {
+                    age: 234,
+                    getAssignTableData: () => {}
+                }
+            }
+        },
+        cases: [
+            {
+                name: 'tableTool. 不含自身 tableTool',
+                code: 'tableTool.',
+                require: ['age', 'getAssignTableData'],
+                forbid: ['tableTool']
+            },
+            {
+                name: 'window. 默认不含 tableTool',
+                code: 'window.',
+                forbid: ['tableTool']
+            },
+            {
+                name: '全局仍提示 tableTool',
+                code: 'table',
+                require: ['tableTool']
+            }
+        ]
+    },
+    {
+        group: 'customSignatures 根级覆盖 meta',
+        completionOptions: {
+            customObjectCompletions: {
+                tableTool: {
+                    meta: {type: 'class', detail: 'tableTool', info: '来自 meta'}
+                }
+            },
+            customSignatures: {
+                tableTool: {info: '表工具-覆盖'}
+            }
+        },
+        cases: [
+            {
+                name: '全局 tableTool 使用 customSignatures',
+                code: 'table',
+                checkOption: {label: 'tableTool', info: '表工具-覆盖'}
+            }
+        ]
+    },
+    {
+        group: 'customObjectCompletions meta.onWindow',
+        completionOptions: {
+            includeWindow: true,
+            customObjectCompletions: {
+                tableTool: {
+                    meta: {type: 'class', detail: 'tableTool', info: '不在 window'}
+                },
+                winApp: {
+                    meta: {type: 'class', detail: 'winApp', info: '在 window', onWindow: true}
+                }
+            }
+        },
+        cases: [
+            {
+                name: 'window. 含 onWindow 的 winApp',
+                code: 'window.',
+                require: ['winApp'],
+                forbid: ['tableTool']
+            }
+        ]
+    },
 ];
 
 function runContextCase(testCase) {
@@ -597,13 +673,27 @@ function runNormalizeObjectCompletionsTests() {
     const {topLevel, nestedPaths} = normalizeCustomObjectCompletions(sampleCustomObjectTree);
     const apiItem = topLevel.myApp?.find(c => c.label === 'api');
     const userItem = nestedPaths['myApp.api']?.find(c => c.label === 'user');
+    const metaOnlyRoot = normalizeCustomObjectCompletions({
+        tableTool: {
+            meta: {type: 'class', detail: 'tableTool', info: '获取表格数据方法合集'}
+        }
+    });
     const checks = [
         ['topLevel myApp', topLevel.myApp?.map(c => c.label).sort().join(','), 'api,request,version'],
         ['nested myApp.api', nestedPaths['myApp.api']?.map(c => c.label).sort().join(','), 'post,user'],
         ['nested myApp.api.user', nestedPaths['myApp.api.user']?.map(c => c.label).sort().join(','), 'get,list,type'],
         ['api detail', apiItem?.detail, 'API'],
         ['user info', userItem?.info, '用户模块'],
+        ['meta-only root has no topLevel children', metaOnlyRoot.topLevel.tableTool?.length ?? 0, 0],
+        ['meta-only root global entry', metaOnlyRoot.globalEntries.some(e => e.label === 'tableTool'), true],
+        ['meta-only root not on window by default', metaOnlyRoot.windowMembers.has('tableTool'), false],
     ];
+    const onWindowRoot = normalizeCustomObjectCompletions({
+        winOnly: {meta: {type: 'class', detail: 'winOnly', info: '挂到 window', onWindow: true}}
+    });
+    checks.push(
+        ['onWindow root in windowMembers', onWindowRoot.windowMembers.has('winOnly'), true]
+    );
     let ok = true;
     for (const [name, got, expect] of checks) {
         if (got !== expect) {

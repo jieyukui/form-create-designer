@@ -23,8 +23,10 @@ import {
  * @param {Object} options.customObjects - 用户自定义对象
  *   { objName: realObject }
  * @param {Object} options.customSignatures - 用户自定义签名
- *   { 'objName.methodName': { type, detail, info } }
+ *   { 'objName': { type, detail, info } } 根对象覆盖 customObjectCompletions.meta
+ *   { 'objName.methodName': { type, detail, info } } 成员覆盖
  * @param {Object} options.customObjectCompletions - 对象树 { meta, members }，避免与用户属性名冲突
+ *   meta.onWindow 为 true 时将该根对象加入 window. 补全（默认 false）
  * @param {boolean} options.includeWindow - 是否包含 window 对象扫描（默认 true）
  * @param {boolean} options.includeChain - 是否包含链式调用推断（默认 true）
  * @param {boolean} options.includePrototypes - 是否包含原型链补全（默认 true）

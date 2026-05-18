@@ -1,6 +1,6 @@
 {
     "name": "@jieyukui/form-create-designer",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "description": "@form-create/designer@3.4.0 的自定义增强版分支。好用的Vue低代码可视化表单设计器，可以通过拖拽的方式快速创建表单，提高开发者对表单的开发效率。",
     "unpkg": "./dist/index.umd.js",
     "jsdelivr": "./dist/index.umd.js",
@@ -60,10 +60,8 @@
         "README.md",
         "package.json",
         "LICENSE",
-        "src",
         "types",
-        "dist",
-        "locale"
+        "dist"
     ],
     "author": "jieyukui",
     "license": "MIT",

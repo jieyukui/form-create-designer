@@ -137,7 +137,8 @@
 
 <script>
 import {defineComponent} from 'vue'
-import {copyTextToClipboard, toJSON} from '../../src/index.js';
+import {copyTextToClipboard, toJSON} from '../shim';
+import {name as PKG_NAME} from '../../package.json';
 
 export default defineComponent({
     name: 'ConfigPanel',
@@ -362,7 +363,7 @@ export default defineComponent({
     <fc-designer :config="config"${this.activeTheme === 'blue' ? '' : ' theme="' + this.activeTheme + '"'}${this.activeLocale === 'zh-cn' ? '' : ' :locale="' + this.activeLocale + '"'}></fc-designer>
 </template>
 <script setup>
-    ${this.activeLocale === 'zh-cn' ? '' : `import ${this.activeLocale} from '@form-create/designer/locale/${this.activeLocale}.js`}
+    ${this.activeLocale === 'zh-cn' ? '' : `import ${this.activeLocale} from '${PKG_NAME}/src/locale/${this.activeLocale}.js`}
     const config=ref(${toJSON(config)})
 <\/script>`
         },
